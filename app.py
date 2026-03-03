@@ -3,12 +3,23 @@ import json
 import os
 import yaml
 
+print("Starting Swagger to KrakenD config generator...")
 DEFAULT_SWAGGER_FILE = 'swagger.yaml'
 DEFAULT_KEYCLOAK_URL = 'http://keycloak:8080'
 DEFAULT_REALM_NAME = 'optimce-realm'
-DEFAULT_BACKEND_HOST = 'http://host.docker.internal:3000'
+DEFAULT_BACKEND_HOST = 'http://localhost:3000'
 DEFAULT_ISSUER = f'http://localhost:8081/realms/{DEFAULT_REALM_NAME}'
 DEFAULT_OUTPUT_FILE = 'krakend.json'
+
+# Fetch from environment variables with defaults
+SWAGGER_FILE = os.getenv('SWAGGER_FILE', DEFAULT_SWAGGER_FILE)
+OUTPUT_FILE = os.getenv('OUTPUT_FILE', DEFAULT_OUTPUT_FILE)
+#keycloak
+KEYCLOAK_URL = os.getenv('KEYCLOAK_URL', DEFAULT_KEYCLOAK_URL)
+REALM_NAME = os.getenv('REALM_NAME', DEFAULT_REALM_NAME)
+ISSUER = os.getenv('ISSUER', DEFAULT_ISSUER)
+#crm-backend
+BACKEND_HOST = os.getenv('BACKEND_HOST', DEFAULT_BACKEND_HOST)
 
 def load_swagger(filepath):
     with open(filepath, 'r') as file:
@@ -103,12 +114,12 @@ def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, iss
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate KrakenD config from a Swagger/OpenAPI YAML file.")
-    parser.add_argument("swagger_file", nargs="?", default=DEFAULT_SWAGGER_FILE, help="Path to the Swagger YAML file.")
-    parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT_FILE, help="Output JSON file path.")
-    parser.add_argument("--keycloak-url", default=os.getenv("KEYCLOAK_URL", DEFAULT_KEYCLOAK_URL))
-    parser.add_argument("--realm-name", default=os.getenv("REALM_NAME", DEFAULT_REALM_NAME))
-    parser.add_argument("--backend-host", default=os.getenv("BACKEND_HOST", DEFAULT_BACKEND_HOST))
-    parser.add_argument("--issuer", default=os.getenv("ISSUER", DEFAULT_ISSUER))
+    parser.add_argument("swagger_file", nargs="?", default=SWAGGER_FILE, help="Path to the Swagger YAML file.")
+    parser.add_argument("-o", "--output", default=OUTPUT_FILE, help="Output JSON file path.")
+    parser.add_argument("--keycloak-url", default=KEYCLOAK_URL)
+    parser.add_argument("--realm-name", default=REALM_NAME)
+    parser.add_argument("--backend-host", default=BACKEND_HOST)
+    parser.add_argument("--issuer", default=ISSUER)
     return parser.parse_args()
 
 
