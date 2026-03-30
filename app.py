@@ -5,36 +5,39 @@ import yaml
 from pathlib import Path
 
 print("Starting Swagger to KrakenD config generator...")
-DEFAULT_SWAGGER_FILE = 'swagger.yaml'
-DEFAULT_KEYCLOAK_URL = 'http://keycloak:8080'
-DEFAULT_REALM_NAME = 'optimce-realm'
-DEFAULT_BACKEND_HOST = 'http://localhost:3000'
-DEFAULT_ISSUER = f'http://localhost:8081/realms/{DEFAULT_REALM_NAME}'
-DEFAULT_OUTPUT_FILE = 'krakend.json'
+DEFAULT_SWAGGER_FILE = "swagger.yaml"
+DEFAULT_KEYCLOAK_URL = "http://keycloak:8080"
+DEFAULT_REALM_NAME = "optimce-realm"
+DEFAULT_BACKEND_HOST = "http://localhost:3000"
+DEFAULT_ISSUER = f"http://localhost:8081/realms/{DEFAULT_REALM_NAME}"
+DEFAULT_OUTPUT_FILE = "krakend.json"
 
 # Fetch from environment variables with defaults
-SWAGGER_FILE = os.getenv('SWAGGER_FILE', DEFAULT_SWAGGER_FILE)
-OUTPUT_FILE = os.getenv('OUTPUT_FILE', DEFAULT_OUTPUT_FILE)
-#keycloak
-KEYCLOAK_URL = os.getenv('KEYCLOAK_URL', DEFAULT_KEYCLOAK_URL)
-REALM_NAME = os.getenv('REALM_NAME', DEFAULT_REALM_NAME)
-ISSUER = os.getenv('ISSUER', DEFAULT_ISSUER)
-#crm-backend
-BACKEND_HOST = os.getenv('BACKEND_HOST', DEFAULT_BACKEND_HOST)
+SWAGGER_FILE = os.getenv("SWAGGER_FILE", DEFAULT_SWAGGER_FILE)
+OUTPUT_FILE = os.getenv("OUTPUT_FILE", DEFAULT_OUTPUT_FILE)
+# keycloak
+KEYCLOAK_URL = os.getenv("KEYCLOAK_URL", DEFAULT_KEYCLOAK_URL)
+REALM_NAME = os.getenv("REALM_NAME", DEFAULT_REALM_NAME)
+ISSUER = os.getenv("ISSUER", DEFAULT_ISSUER)
+# crm-backend
+BACKEND_HOST = os.getenv("BACKEND_HOST", DEFAULT_BACKEND_HOST)
+
 
 def load_swagger(filepath):
-    with open(filepath, 'r') as file:
+    with open(filepath, "r") as file:
         return yaml.safe_load(file)
+
 
 def get_service_name(filepath):
     """Extract service name from filename (without extension)"""
     return Path(filepath).stem
 
+
 def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, issuer, service_prefix=""):
     krakend_config = {
         "$schema": "https://www.krakend.io/schema/v2.13/krakend.json",
         "version": 3,
-        "name": swagger.get('info', {}).get('title', 'API Gateway'),
+        "name": swagger.get("info", {}).get("title", "API Gateway"),
         "port": 8080,
         "timeout": "3000ms",
         "cache_ttl": "0s",
@@ -42,7 +45,7 @@ def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, iss
             "telemetry/logging": {
                 "level": "INFO",
                 "prefix": "[KRAKEND]",
-                "stdout": True
+                "stdout": True,
             },
             "security/cors": {
                 "allow_origins": ["*"],
@@ -53,67 +56,80 @@ def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, iss
                     "x-community-id",
                     "x-user-id",
                     "x-user-groups",
-                    "x-user-orgs"
+                    "x-user-orgs",
                 ],
                 "expose_headers": [
                     "x-user-id",
                     "x-user-groups",
                     "x-user-orgs",
-                    "x-community-id"
-                ]
-            }
+                    "x-community-id",
+                ],
+            },
         },
-        "endpoints": []
+        "endpoints": [],
     }
 
-    paths = swagger.get('paths', {})
-    
+    paths = swagger.get("paths", {})
+
     for path, methods in paths.items():
         for method, details in methods.items():
-            if method not in ['get', 'post', 'put', 'delete', 'patch', 'options']:
+            if method not in ["get", "post", "put", "delete", "patch", "options"]:
                 continue
 
             # 1. Detect if this is a file upload route
-            is_upload = 'multipart/form-data' in details.get('consumes', [])
+            is_upload = "multipart/form-data" in details.get("consumes", [])
             encoding = "no-op" if is_upload else "json"
 
             # 2. Build the endpoint object
             endpoint = {
                 "endpoint": f"{service_prefix}{path}",
-                "input_headers": ["x-user-id","x-community-id","x-user-groups", "x-user-orgs", "Content-Length", "Content-Type"],
+                "input_headers": [
+                    "x-user-id",
+                    "x-community-id",
+                    "x-user-groups",
+                    "x-user-orgs",
+                    "Content-Length",
+                    "Content-Type",
+                ],
                 "method": method.upper(),
                 "output_encoding": encoding,
-                "backend": [{
-                    "url_pattern": path,
-                    "host": [backend_host],
-                    "encoding": encoding
-                }]
+                "backend": [{"url_pattern": path, "host": [backend_host], "encoding": encoding}],
             }
 
             # 4. Add Keycloak Auth Validator
-            # We add this to ALL routes found in swagger. 
+            # We add this to ALL routes found in swagger.
             # If you have public routes, you might want to filter them here.
             endpoint["extra_config"] = {
                 "auth/validator": {
                     "alg": "RS256",
                     "jwk_url": f"{keycloak_url}/realms/{realm_name}/protocol/openid-connect/certs",
-                    "disable_jwk_security": True, # True because internal docker network often uses HTTP
+                    "disable_jwk_security": True,  # True because internal docker network often uses HTTP
                     "issuer": issuer,
                     "propagate_claims": [
                         ["sub", "x-user-id"],
-                        ["groups","x-user-groups"],
-                        ["orgs", "x-user-orgs"]
-                    ]
+                        ["groups", "x-user-groups"],
+                        ["orgs", "x-user-orgs"],
+                    ],
                 }
             }
 
-            krakend_config['endpoints'].append(endpoint)
+            krakend_config["endpoints"].append(endpoint)
 
     return krakend_config
 
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Generate KrakenD config from Swagger/OpenAPI YAML file(s). Supports single or multiple files (comma-separated).")
-    parser.add_argument("swagger_file", nargs="?", default=SWAGGER_FILE, help="Path to the Swagger YAML file(s). For multiple files, use comma-separated list (e.g., file1.yaml,file2.yaml). Service name is derived from filename (without extension).")
+    parser = argparse.ArgumentParser(
+        description="Generate KrakenD config from Swagger/OpenAPI YAML files. "
+        "Supports single or multiple files (comma-separated)."
+    )
+    parser.add_argument(
+        "swagger_file",
+        nargs="?",
+        default=SWAGGER_FILE,
+        help="Path to Swagger YAML file(s). Use comma-separated for multiple files. "
+        "Service name derived from filename (without extension).",
+    )
     parser.add_argument("-o", "--output", default=OUTPUT_FILE, help="Output JSON file path.")
     parser.add_argument("--keycloak-url", default=KEYCLOAK_URL)
     parser.add_argument("--realm-name", default=REALM_NAME)
@@ -127,21 +143,21 @@ if __name__ == "__main__":
 
     try:
         # Parse swagger files (comma-separated list)
-        swagger_files = args.swagger_file.split(',')
-        
+        swagger_files = args.swagger_file.split(",")
+
         # Initialize combined config
         combined_config = None
-        
+
         # Process each swagger file
         for swagger_file in swagger_files:
             swagger_file = swagger_file.strip()  # Remove any whitespace
             if not os.path.isfile(swagger_file):
                 print(f"Error: Could not find {swagger_file}")
                 continue
-                
+
             # Load swagger data
             swagger_data = load_swagger(swagger_file)
-            
+
             # Get service name from filename (without extension)
             service_name = get_service_name(swagger_file)
             # Special case: if service name is "root", don't add prefix
@@ -149,7 +165,7 @@ if __name__ == "__main__":
                 service_prefix = ""
             else:
                 service_prefix = f"/{service_name}" if service_name else ""
-            
+
             # Generate config for this service
             service_config = generate_krakend_config(
                 swagger_data,
@@ -157,25 +173,25 @@ if __name__ == "__main__":
                 realm_name=args.realm_name,
                 backend_host=args.backend_host,
                 issuer=args.issuer,
-                service_prefix=service_prefix
+                service_prefix=service_prefix,
             )
-            
+
             # Initialize combined config with first service's config
             if combined_config is None:
                 combined_config = service_config
             else:
                 # Merge endpoints from subsequent services
-                combined_config['endpoints'].extend(service_config['endpoints'])
-                
+                combined_config["endpoints"].extend(service_config["endpoints"])
+
                 # Optionally, we could merge other fields, but keeping it simple for now
                 # Use the first service's info for name, or we could make it configurable
-        
+
         if combined_config is None:
             print("Error: No valid swagger files found.")
             exit(1)
-            
+
         # Write combined config to output file
-        with open(args.output, 'w') as f:
+        with open(args.output, "w") as f:
             json.dump(combined_config, f, indent=4)
 
         print(f"Success! '{args.output}' has been generated.")
