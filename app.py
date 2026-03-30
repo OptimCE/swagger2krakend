@@ -1,26 +1,25 @@
 import argparse
 import json
 import os
+import re
 import yaml
 from pathlib import Path
 
 print("Starting Swagger to KrakenD config generator...")
+
 DEFAULT_SWAGGER_FILE = "swagger.yaml"
-DEFAULT_KEYCLOAK_URL = "http://keycloak:8080"
-DEFAULT_REALM_NAME = "optimce-realm"
+DEFAULT_EXTRA_CONFIG = "extra-config.json"
 DEFAULT_BACKEND_HOST = "http://localhost:3000"
-DEFAULT_ISSUER = f"http://localhost:8081/realms/{DEFAULT_REALM_NAME}"
 DEFAULT_OUTPUT_FILE = "krakend.json"
 
-# Fetch from environment variables with defaults
 SWAGGER_FILE = os.getenv("SWAGGER_FILE", DEFAULT_SWAGGER_FILE)
 OUTPUT_FILE = os.getenv("OUTPUT_FILE", DEFAULT_OUTPUT_FILE)
-# keycloak
-KEYCLOAK_URL = os.getenv("KEYCLOAK_URL", DEFAULT_KEYCLOAK_URL)
-REALM_NAME = os.getenv("REALM_NAME", DEFAULT_REALM_NAME)
-ISSUER = os.getenv("ISSUER", DEFAULT_ISSUER)
-# crm-backend
+EXTRA_CONFIG = os.getenv("EXTRA_CONFIG", DEFAULT_EXTRA_CONFIG)
 BACKEND_HOST = os.getenv("BACKEND_HOST", DEFAULT_BACKEND_HOST)
+
+
+class MissingEnvVarError(Exception):
+    pass
 
 
 def load_swagger(filepath):
@@ -28,12 +27,43 @@ def load_swagger(filepath):
         return yaml.safe_load(file)
 
 
+def load_extra_config(filepath):
+    with open(filepath, "r") as file:
+        return json.load(file)
+
+
+def substitute_env_vars(obj):
+    if isinstance(obj, str):
+        pattern = r"\$\{([^}]+)\}"
+        matches = re.findall(pattern, obj)
+        for match in matches:
+            env_value = os.getenv(match)
+            if env_value is None:
+                raise MissingEnvVarError(f"Environment variable '{match}' is not set but is required in config")
+            obj = obj.replace(f"${{{match}}}", env_value)
+        return obj
+    elif isinstance(obj, dict):
+        return {key: substitute_env_vars(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [substitute_env_vars(item) for item in obj]
+    return obj
+
+
+def merge_configs(base, override):
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = merge_configs(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def get_service_name(filepath):
-    """Extract service name from filename (without extension)"""
     return Path(filepath).stem
 
 
-def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, issuer, service_prefix=""):
+def generate_krakend_config(swagger, backend_host, service_prefix="", global_extra_config=None):
     krakend_config = {
         "$schema": "https://www.krakend.io/schema/v2.13/krakend.json",
         "version": 3,
@@ -69,6 +99,9 @@ def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, iss
         "endpoints": [],
     }
 
+    if global_extra_config:
+        krakend_config["extra_config"] = merge_configs(krakend_config["extra_config"], global_extra_config)
+
     paths = swagger.get("paths", {})
 
     for path, methods in paths.items():
@@ -76,11 +109,9 @@ def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, iss
             if method not in ["get", "post", "put", "delete", "patch", "options"]:
                 continue
 
-            # 1. Detect if this is a file upload route
             is_upload = "multipart/form-data" in details.get("consumes", [])
             encoding = "no-op" if is_upload else "json"
 
-            # 2. Build the endpoint object
             endpoint = {
                 "endpoint": f"{service_prefix}{path}",
                 "input_headers": [
@@ -96,22 +127,8 @@ def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, iss
                 "backend": [{"url_pattern": path, "host": [backend_host], "encoding": encoding}],
             }
 
-            # 4. Add Keycloak Auth Validator
-            # We add this to ALL routes found in swagger.
-            # If you have public routes, you might want to filter them here.
-            endpoint["extra_config"] = {
-                "auth/validator": {
-                    "alg": "RS256",
-                    "jwk_url": f"{keycloak_url}/realms/{realm_name}/protocol/openid-connect/certs",
-                    "disable_jwk_security": True,  # True because internal docker network often uses HTTP
-                    "issuer": issuer,
-                    "propagate_claims": [
-                        ["sub", "x-user-id"],
-                        ["groups", "x-user-groups"],
-                        ["orgs", "x-user-orgs"],
-                    ],
-                }
-            }
+            if global_extra_config:
+                endpoint["extra_config"] = global_extra_config.copy()
 
             krakend_config["endpoints"].append(endpoint)
 
@@ -131,10 +148,13 @@ def parse_args():
         "Service name derived from filename (without extension).",
     )
     parser.add_argument("-o", "--output", default=OUTPUT_FILE, help="Output JSON file path.")
-    parser.add_argument("--keycloak-url", default=KEYCLOAK_URL)
-    parser.add_argument("--realm-name", default=REALM_NAME)
+    parser.add_argument(
+        "-e",
+        "--extra-config",
+        default=EXTRA_CONFIG,
+        help="Path to extra-config.json file for global endpoint configuration.",
+    )
     parser.add_argument("--backend-host", default=BACKEND_HOST)
-    parser.add_argument("--issuer", default=ISSUER)
     return parser.parse_args()
 
 
@@ -142,55 +162,43 @@ if __name__ == "__main__":
     args = parse_args()
 
     try:
-        # Parse swagger files (comma-separated list)
+        global_extra_config = None
+        if os.path.isfile(args.extra_config):
+            print(f"Loading extra config from: {args.extra_config}")
+            raw_config = load_extra_config(args.extra_config)
+            global_extra_config = substitute_env_vars(raw_config)
+
         swagger_files = args.swagger_file.split(",")
 
-        # Initialize combined config
         combined_config = None
 
-        # Process each swagger file
         for swagger_file in swagger_files:
-            swagger_file = swagger_file.strip()  # Remove any whitespace
+            swagger_file = swagger_file.strip()
             if not os.path.isfile(swagger_file):
                 print(f"Error: Could not find {swagger_file}")
                 continue
 
-            # Load swagger data
             swagger_data = load_swagger(swagger_file)
 
-            # Get service name from filename (without extension)
             service_name = get_service_name(swagger_file)
-            # Special case: if service name is "root", don't add prefix
-            if service_name == "root":
-                service_prefix = ""
-            else:
-                service_prefix = f"/{service_name}" if service_name else ""
+            service_prefix = "" if service_name == "root" else f"/{service_name}"
 
-            # Generate config for this service
             service_config = generate_krakend_config(
                 swagger_data,
-                keycloak_url=args.keycloak_url,
-                realm_name=args.realm_name,
                 backend_host=args.backend_host,
-                issuer=args.issuer,
                 service_prefix=service_prefix,
+                global_extra_config=global_extra_config,
             )
 
-            # Initialize combined config with first service's config
             if combined_config is None:
                 combined_config = service_config
             else:
-                # Merge endpoints from subsequent services
                 combined_config["endpoints"].extend(service_config["endpoints"])
-
-                # Optionally, we could merge other fields, but keeping it simple for now
-                # Use the first service's info for name, or we could make it configurable
 
         if combined_config is None:
             print("Error: No valid swagger files found.")
             exit(1)
 
-        # Write combined config to output file
         with open(args.output, "w") as f:
             json.dump(combined_config, f, indent=4)
 
@@ -199,5 +207,10 @@ if __name__ == "__main__":
 
     except FileNotFoundError:
         print(f"Error: Could not find {args.swagger_file}")
+        exit(1)
+    except MissingEnvVarError as e:
+        print(f"Error: {e}")
+        exit(1)
     except Exception as e:
         print(f"An error occurred: {e}")
+        exit(1)
