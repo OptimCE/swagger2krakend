@@ -12,6 +12,7 @@ CMD ["python3", "-u", "app.py"]
 
 # ---- Test Generation Stage ----
 FROM base AS test-generator
+RUN mkdir -p test/output
 # Generate the output config from the samples
 RUN python3 app.py "test/samples/orders.yaml,test/samples/root.yaml,test/samples/users.yaml" -o test/output/krakend-output.json
 # Generate the output config from the single sample
