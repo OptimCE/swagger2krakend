@@ -1,15 +1,31 @@
-FROM python:3-alpine
-# Install envsubst for environment variable substitution in configuration files
-RUN apk --no-cache add gettext
-# Install any additional Python dependencies if needed (e.g., for configuration generation)
-# Based on the requirements.txt file of the application.
+# ---- Base Stage ----
+FROM python:3-alpine AS base
 COPY requirements.txt .
 RUN pip3 install -r requirements.txt
-# Set working directory
 WORKDIR /app
-# Copy the application code
 COPY . .
-# Make the configuration generator script executable
 RUN chmod +x app.py
-# Generate the configuration file using environment variables
-CMD python3 -u app.py
+
+# ---- Release Stage (Default) ----
+FROM base AS release
+CMD ["python3", "-u", "app.py"]
+
+# ---- Test Generation Stage ----
+FROM base AS test-generator
+RUN mkdir -p test/output
+# Generate the output config from the samples
+RUN python3 app.py "test/samples/orders.yaml,test/samples/root.yaml,test/samples/users.yaml" -o test/output/krakend-output.json
+# Generate the output config from the single sample
+RUN python3 app.py "test/samples/orders.yaml" -o test/output/krakend-output-single.json
+#Generate the output config from the single sample with root service name
+RUN python3 app.py "test/samples/root.yaml" -o test/output/krakend-output-root.json
+
+# ---- Test Execution Stage ----
+FROM krakend:latest AS test
+# Copy the generated configuration from the generator stage
+COPY --from=test-generator /app/test/output/krakend-output.json krakend-output.json
+COPY --from=test-generator /app/test/output/krakend-output-single.json krakend-output-single.json
+COPY --from=test-generator /app/test/output/krakend-output-root.json krakend-output-root.json
+
+# Run the KrakenD check commands on all generated configurations
+CMD ["/bin/sh", "-c", "krakend check -tnc krakend-output.json && krakend check -tnc krakend-output-single.json && krakend check -tnc krakend-output-root.json"]

@@ -1,0 +1,21 @@
+name: Check KrakenD Config
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build the test stage
+        run: docker build --target test -t swagger2krakend-test .
+
+      - name: Run KrakenD Configuration Tests
+        run: docker run --rm swagger2krakend-test
