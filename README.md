@@ -4,26 +4,36 @@ Convert Swagger/OpenAPI YAML files to KrakenD API gateway configuration.
 
 ## Features
 
-- **Single file mode**: Process one Swagger file
+- **Single file mode**: Process one Swagger file with its backend host
 - **Multi-file mode**: Process multiple Swagger files (comma-separated)
+- **Per-file backend**: Each swagger file specifies its own backend host
 - **Service prefixing**: Each service's endpoints are prefixed with the filename (without extension)
 - **Root exception**: Files named `root.yaml` get no prefix (endpoints remain at root path)
 - **Extra-config**: External JSON configuration with environment variable substitution
 - **File upload detection**: Special handling for multipart/form-data endpoints
-- **CI-ready**: Fails fast if any swagger file is missing
+- **CI-ready**: Fails fast if any swagger file is missing or lacks a host
 
 ## Usage
 
+### Syntax: `filepath:host`
+
+Each swagger file must specify its backend host using `filepath:host` syntax:
+
+```bash
+python3 app.py 'swagger.yaml:http://localhost:3000'
+python3 app.py 'users.yaml:http://localhost:3001,orders.yaml:http://localhost:3002'
+```
+
+**Note:** The URL must include the port number (e.g., `:8080`, `:3000`).
+
 ### Single File
 ```bash
-python3 app.py swagger.yaml
-python3 app.py swagger.yaml -o custom-output.json
+python3 app.py 'swagger.yaml:http://localhost:3000' -o custom-output.json
 ```
 
 ### Multiple Files
 ```bash
-python3 app.py users.yaml,orders.yaml
-python3 app.py users.yaml,orders.yaml -o combined-config.json
+python3 app.py 'users.yaml:http://localhost:3001,orders.yaml:http://localhost:3002' -o combined-config.json
 ```
 
 ### Extra Config
@@ -31,7 +41,7 @@ python3 app.py users.yaml,orders.yaml -o combined-config.json
 Use `extra-config.json` to define global endpoint configuration with environment variable substitution:
 
 ```bash
-python3 app.py swagger.yaml -e extra-config.json
+python3 app.py 'swagger.yaml:http://localhost:3000' -e extra-config.json
 ```
 
 #### extra-config.json example
@@ -55,25 +65,22 @@ python3 app.py swagger.yaml -e extra-config.json
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SWAGGER_FILE` | `swagger.yaml` | Input swagger file(s) |
+| `SWAGGER_FILE` | `swagger.yaml` | Input swagger file(s) with hosts (`file:host` syntax) |
 | `EXTRA_CONFIG` | `extra-config.json` | Path to extra-config.json |
-| `BACKEND_HOST` | `http://localhost:3000` | Backend host URL |
 | `OUTPUT_FILE` | `krakend.json` | Output file path |
-| `KEYCLOAK_URL` | - | Keycloak URL (required if using extra-config) |
-| `REALM_NAME` | - | Keycloak realm name (required if using extra-config) |
-| `ISSUER` | - | JWT issuer (required if using extra-config) |
 
 ### CLI Options
 
 ```bash
-python3 app.py [-h] [-o OUTPUT] [-e EXTRA_CONFIG] [--backend-host BACKEND_HOST] [swagger_file]
+python3 app.py [-h] [-o OUTPUT] [-e EXTRA_CONFIG] swagger_file [...]
 ```
 
 ### Root File Special Case
 
 Files named `root.yaml` get no prefix:
+
 ```bash
-python3 app.py root.yaml,users.yaml
+python3 app.py 'root.yaml:http://localhost:3000,users.yaml:http://localhost:3001'
 # root.yaml endpoints: /health, /version
 # users.yaml endpoints: /users/users, /users/{id}
 ```
@@ -99,4 +106,4 @@ flake8 app.py
 ## Exit Codes
 
 - `0`: Success
-- `1`: Error (missing swagger file, missing env var, etc.)
+- `1`: Error (missing swagger file, missing env var, missing host, etc.)

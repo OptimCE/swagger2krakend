@@ -10,13 +10,11 @@ print("Starting Swagger to KrakenD config generator...")
 
 DEFAULT_SWAGGER_FILE = "swagger.yaml"
 DEFAULT_EXTRA_CONFIG = "extra-config.json"
-DEFAULT_BACKEND_HOST = "http://localhost:3000"
 DEFAULT_OUTPUT_FILE = "krakend.json"
 
 SWAGGER_FILE = os.getenv("SWAGGER_FILE", DEFAULT_SWAGGER_FILE)
 OUTPUT_FILE = os.getenv("OUTPUT_FILE", DEFAULT_OUTPUT_FILE)
 EXTRA_CONFIG = os.getenv("EXTRA_CONFIG", DEFAULT_EXTRA_CONFIG)
-BACKEND_HOST = os.getenv("BACKEND_HOST", DEFAULT_BACKEND_HOST)
 
 
 class MissingEnvVarError(Exception):
@@ -40,7 +38,9 @@ def substitute_env_vars(obj):
         for match in matches:
             env_value = os.getenv(match)
             if env_value is None:
-                raise MissingEnvVarError(f"Environment variable '{match}' is not set but is required in config")
+                raise MissingEnvVarError(
+                    f"Environment variable '{match}' is not set but is required in config"
+                )
             obj = obj.replace(f"${{{match}}}", env_value)
         return obj
     elif isinstance(obj, dict):
@@ -64,7 +64,19 @@ def get_service_name(filepath):
     return Path(filepath).stem
 
 
-def generate_krakend_config(swagger, backend_host, service_prefix="", global_extra_config=None):
+def parse_swagger_entry(entry):
+    if ":" in entry and not entry.endswith(":"):
+        parts = entry.split(":", 1)
+        filepath, potential_host = parts[0], parts[1]
+        if "://" in potential_host or potential_host.startswith("http"):
+            return filepath, potential_host
+        return entry, None
+    return entry, None
+
+
+def generate_krakend_config(
+    swagger, api_host, service_prefix="", global_extra_config=None
+):
     krakend_config = {
         "$schema": "https://www.krakend.io/schema/v2.13/krakend.json",
         "version": 3,
@@ -101,7 +113,9 @@ def generate_krakend_config(swagger, backend_host, service_prefix="", global_ext
     }
 
     if global_extra_config:
-        krakend_config["extra_config"] = merge_configs(krakend_config["extra_config"], global_extra_config)
+        krakend_config["extra_config"] = merge_configs(
+            krakend_config["extra_config"], global_extra_config
+        )
 
     paths = swagger.get("paths", {})
 
@@ -125,7 +139,9 @@ def generate_krakend_config(swagger, backend_host, service_prefix="", global_ext
                 ],
                 "method": method.upper(),
                 "output_encoding": encoding,
-                "backend": [{"url_pattern": path, "host": [backend_host], "encoding": encoding}],
+                "backend": [
+                    {"url_pattern": path, "host": [api_host], "encoding": encoding}
+                ],
             }
 
             if global_extra_config:
@@ -148,14 +164,15 @@ def parse_args():
         help="Path to Swagger YAML file(s). Use comma-separated for multiple files. "
         "Service name derived from filename (without extension).",
     )
-    parser.add_argument("-o", "--output", default=OUTPUT_FILE, help="Output JSON file path.")
+    parser.add_argument(
+        "-o", "--output", default=OUTPUT_FILE, help="Output JSON file path."
+    )
     parser.add_argument(
         "-e",
         "--extra-config",
         default=EXTRA_CONFIG,
         help="Path to extra-config.json file for global endpoint configuration.",
     )
-    parser.add_argument("--backend-host", default=BACKEND_HOST)
     return parser.parse_args()
 
 
@@ -169,9 +186,17 @@ if __name__ == "__main__":
             raw_config = load_extra_config(args.extra_config)
             global_extra_config = substitute_env_vars(raw_config)
 
-        swagger_files = [f.strip() for f in args.swagger_file.split(",")]
-        missing_files = [f for f in swagger_files if not os.path.isfile(f)]
+        swagger_entries = [f.strip() for f in args.swagger_file.split(",")]
+        swagger_entries = [parse_swagger_entry(e) for e in swagger_entries]
 
+        missing_hosts = [f for f, h in swagger_entries if h is None]
+        if missing_hosts:
+            for f in missing_hosts:
+                print(f"Error: No host specified for {f}")
+            print("Error: All swagger files must specify a host (file:host syntax).")
+            sys.exit(1)
+
+        missing_files = [f for f, _ in swagger_entries if not os.path.isfile(f)]
         if missing_files:
             for f in missing_files:
                 print(f"Error: Could not find {f}")
@@ -180,15 +205,14 @@ if __name__ == "__main__":
 
         combined_config = None
 
-        for swagger_file in swagger_files:
-            swagger_data = load_swagger(swagger_file)
-
-            service_name = get_service_name(swagger_file)
+        for filepath, api_host in swagger_entries:
+            swagger_data = load_swagger(filepath)
+            service_name = get_service_name(filepath)
             service_prefix = "" if service_name == "root" else f"/{service_name}"
 
             service_config = generate_krakend_config(
                 swagger_data,
-                backend_host=args.backend_host,
+                api_host=api_host,
                 service_prefix=service_prefix,
                 global_extra_config=global_extra_config,
             )
