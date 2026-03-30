@@ -32,7 +32,7 @@ def get_service_name(filepath):
 
 def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, issuer, service_prefix=""):
     krakend_config = {
-        "$schema": "https://www.krakend.io/schema/v2.6/krakend.json",
+        "$schema": "https://www.krakend.io/schema/v2.13/krakend.json",
         "version": 3,
         "name": swagger.get('info', {}).get('title', 'API Gateway'),
         "port": 8080,
@@ -89,12 +89,6 @@ def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, iss
                     "encoding": encoding
                 }]
             }
-            headers_to_pass = ["Content-Length", "Content-Type"]
-            # 3. Add Headers to pass (for uploads)
-            #if is_upload:
-            #    headers_to_pass.append()
-
-            endpoint["headers_to_pass"] = headers_to_pass
 
             # 4. Add Keycloak Auth Validator
             # We add this to ALL routes found in swagger. 
