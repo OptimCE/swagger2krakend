@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import re
+import sys
 import yaml
 from pathlib import Path
 
@@ -175,7 +176,7 @@ if __name__ == "__main__":
             for f in missing_files:
                 print(f"Error: Could not find {f}")
             print("Error: One or more swagger files not found.")
-            exit(1)
+            sys.exit(1)
 
         combined_config = None
 
@@ -199,7 +200,7 @@ if __name__ == "__main__":
 
         if combined_config is None:
             print("Error: No valid swagger files found.")
-            exit(1)
+            sys.exit(1)
 
         with open(args.output, "w") as f:
             json.dump(combined_config, f, indent=4)
@@ -209,7 +210,7 @@ if __name__ == "__main__":
 
     except MissingEnvVarError as e:
         print(f"Error: {e}")
-        exit(1)
+        sys.exit(1)
     except Exception as e:
         print(f"An error occurred: {e}")
-        exit(1)
+        sys.exit(1)
