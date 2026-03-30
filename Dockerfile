@@ -21,7 +21,7 @@ RUN python3 app.py "test/samples/orders.yaml" -o test/output/krakend-output-sing
 RUN python3 app.py "test/samples/root.yaml" -o test/output/krakend-output-root.json
 
 # ---- Test Execution Stage ----
-FROM krakend:latest AS test
+FROM krakend:2.13.3 AS test
 # Copy the generated configuration from the generator stage
 COPY --from=test-generator /app/test/output/krakend-output.json krakend-output.json
 COPY --from=test-generator /app/test/output/krakend-output-single.json krakend-output-single.json
