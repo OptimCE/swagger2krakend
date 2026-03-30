@@ -9,7 +9,8 @@ Convert Swagger/OpenAPI YAML files to KrakenD API gateway configuration.
 - **Per-file backend**: Each swagger file specifies its own backend host
 - **Service prefixing**: Each service's endpoints are prefixed with the filename (without extension)
 - **Root exception**: Files named `root.yaml` get no prefix (endpoints remain at root path)
-- **Extra-config**: External JSON configuration with environment variable substitution
+- **Optional extra-config**: Load external JSON only when `-e/--extra-config` is provided
+- **Template substitution**: Extra config supports `${VAR}` placeholders rendered with Jinja2
 - **File upload detection**: Special handling for multipart/form-data endpoints
 - **CI-ready**: Fails fast if any swagger file is missing or lacks a host
 
@@ -38,7 +39,8 @@ python3 app.py 'users.yaml:http://localhost:3001,orders.yaml:http://localhost:30
 
 ### Extra Config
 
-Use `extra-config.json` to define global endpoint configuration with environment variable substitution:
+Use `extra-config.json` to define global endpoint configuration with environment variable substitution.
+This file is loaded only when you pass `-e`:
 
 ```bash
 python3 app.py 'swagger.yaml:http://localhost:3000' -e extra-config.json
@@ -62,12 +64,28 @@ python3 app.py 'swagger.yaml:http://localhost:3000' -e extra-config.json
 }
 ```
 
+### Extra Config Environment Variables
+
+Placeholders use `${VAR}` syntax and are rendered with Jinja2.
+
+- If all variables are set, rendering succeeds.
+- If one variable is missing, the command fails immediately with an explicit error.
+
+Example:
+
+```bash
+export KEYCLOAK_URL='https://kc.example.com'
+export REALM_NAME='myrealm'
+export ISSUER='https://kc.example.com/realms/myrealm'
+
+python3 app.py 'root.yaml:http://localhost:3000' -e extra-config.json
+```
+
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SWAGGER_FILE` | `swagger.yaml` | Input swagger file(s) with hosts (`file:host` syntax) |
-| `EXTRA_CONFIG` | `extra-config.json` | Path to extra-config.json |
 | `OUTPUT_FILE` | `krakend.json` | Output file path |
 
 ### CLI Options
@@ -90,18 +108,19 @@ python3 app.py 'root.yaml:http://localhost:3000,users.yaml:http://localhost:3001
 
 - Python 3.x
 - PyYAML
+- Jinja2
 
 Install dependencies:
 ```bash
-pip install pyyaml
+pip install -r requirements.txt
 ```
 
 ## Code Quality
 
 Format with black and lint with flake8:
 ```bash
-black app.py
-flake8 app.py
+uvx black app.py
+uvx flake8 app.py
 ```
 
 ## Exit Codes
