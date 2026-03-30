@@ -1,0 +1,53 @@
+openapi: 3.0.0
+info:
+  title: Orders API
+  version: 1.0.0
+paths:
+  /orders:
+    get:
+      summary: Get all orders
+      responses:
+        '200':
+          description: Successful response
+    post:
+      summary: Create an order
+      responses:
+        '201':
+          description: Order created
+  /orders/{id}:
+    get:
+      summary: Get order by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+    put:
+      summary: Update order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order updated
+components:
+  schemas:
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        amount:
+          type: number
+        status:
+          type: string
+          enum: [pending, processing, shipped, delivered]

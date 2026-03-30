@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import yaml
+from pathlib import Path
 
 print("Starting Swagger to KrakenD config generator...")
 DEFAULT_SWAGGER_FILE = 'swagger.yaml'
@@ -25,7 +26,11 @@ def load_swagger(filepath):
     with open(filepath, 'r') as file:
         return yaml.safe_load(file)
 
-def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, issuer):
+def get_service_name(filepath):
+    """Extract service name from filename (without extension)"""
+    return Path(filepath).stem
+
+def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, issuer, service_prefix=""):
     krakend_config = {
         "$schema": "https://www.krakend.io/schema/v2.6/krakend.json",
         "version": 3,
@@ -74,7 +79,7 @@ def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, iss
 
             # 2. Build the endpoint object
             endpoint = {
-                "endpoint": path,
+                "endpoint": f"{service_prefix}{path}",
                 "input_headers": ["x-user-id","x-community-id","x-user-groups", "x-user-orgs", "Content-Length", "Content-Type"],
                 "method": method.upper(),
                 "output_encoding": encoding,
@@ -113,8 +118,8 @@ def generate_krakend_config(swagger, keycloak_url, realm_name, backend_host, iss
     return krakend_config
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Generate KrakenD config from a Swagger/OpenAPI YAML file.")
-    parser.add_argument("swagger_file", nargs="?", default=SWAGGER_FILE, help="Path to the Swagger YAML file.")
+    parser = argparse.ArgumentParser(description="Generate KrakenD config from Swagger/OpenAPI YAML file(s). Supports single or multiple files (comma-separated).")
+    parser.add_argument("swagger_file", nargs="?", default=SWAGGER_FILE, help="Path to the Swagger YAML file(s). For multiple files, use comma-separated list (e.g., file1.yaml,file2.yaml). Service name is derived from filename (without extension).")
     parser.add_argument("-o", "--output", default=OUTPUT_FILE, help="Output JSON file path.")
     parser.add_argument("--keycloak-url", default=KEYCLOAK_URL)
     parser.add_argument("--realm-name", default=REALM_NAME)
@@ -127,20 +132,60 @@ if __name__ == "__main__":
     args = parse_args()
 
     try:
-        swagger_data = load_swagger(args.swagger_file)
-        config = generate_krakend_config(
-            swagger_data,
-            keycloak_url=args.keycloak_url,
-            realm_name=args.realm_name,
-            backend_host=args.backend_host,
-            issuer=args.issuer,
-        )
-
+        # Parse swagger files (comma-separated list)
+        swagger_files = args.swagger_file.split(',')
+        
+        # Initialize combined config
+        combined_config = None
+        
+        # Process each swagger file
+        for swagger_file in swagger_files:
+            swagger_file = swagger_file.strip()  # Remove any whitespace
+            if not os.path.isfile(swagger_file):
+                print(f"Error: Could not find {swagger_file}")
+                continue
+                
+            # Load swagger data
+            swagger_data = load_swagger(swagger_file)
+            
+            # Get service name from filename (without extension)
+            service_name = get_service_name(swagger_file)
+            # Special case: if service name is "root", don't add prefix
+            if service_name == "root":
+                service_prefix = ""
+            else:
+                service_prefix = f"/{service_name}" if service_name else ""
+            
+            # Generate config for this service
+            service_config = generate_krakend_config(
+                swagger_data,
+                keycloak_url=args.keycloak_url,
+                realm_name=args.realm_name,
+                backend_host=args.backend_host,
+                issuer=args.issuer,
+                service_prefix=service_prefix
+            )
+            
+            # Initialize combined config with first service's config
+            if combined_config is None:
+                combined_config = service_config
+            else:
+                # Merge endpoints from subsequent services
+                combined_config['endpoints'].extend(service_config['endpoints'])
+                
+                # Optionally, we could merge other fields, but keeping it simple for now
+                # Use the first service's info for name, or we could make it configurable
+        
+        if combined_config is None:
+            print("Error: No valid swagger files found.")
+            exit(1)
+            
+        # Write combined config to output file
         with open(args.output, 'w') as f:
-            json.dump(config, f, indent=4)
+            json.dump(combined_config, f, indent=4)
 
         print(f"Success! '{args.output}' has been generated.")
-        print(f"Total endpoints configured: {len(config['endpoints'])}")
+        print(f"Total endpoints configured: {len(combined_config['endpoints'])}")
 
     except FileNotFoundError:
         print(f"Error: Could not find {args.swagger_file}")
