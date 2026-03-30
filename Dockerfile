@@ -8,7 +8,7 @@ RUN chmod +x app.py
 
 # ---- Release Stage (Default) ----
 FROM base AS release
-CMD python3 -u app.py
+CMD ["python3", "-u", "app.py"]
 
 # ---- Test Generation Stage ----
 FROM base AS test-generator
@@ -27,4 +27,4 @@ COPY --from=test-generator /app/test/output/krakend-output-single.json krakend-o
 COPY --from=test-generator /app/test/output/krakend-output-root.json krakend-output-root.json
 
 # Run the KrakenD check commands on all generated configurations
-CMD krakend check -tnc krakend-output.json && krakend check -tnc krakend-output-single.json && krakend check -tnc krakend-output-root.json
+CMD ["/bin/sh", "-c", "krakend check -tnc krakend-output.json && krakend check -tnc krakend-output-single.json && krakend check -tnc krakend-output-root.json"]
