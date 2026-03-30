@@ -168,16 +168,18 @@ if __name__ == "__main__":
             raw_config = load_extra_config(args.extra_config)
             global_extra_config = substitute_env_vars(raw_config)
 
-        swagger_files = args.swagger_file.split(",")
+        swagger_files = [f.strip() for f in args.swagger_file.split(",")]
+        missing_files = [f for f in swagger_files if not os.path.isfile(f)]
+
+        if missing_files:
+            for f in missing_files:
+                print(f"Error: Could not find {f}")
+            print("Error: One or more swagger files not found.")
+            exit(1)
 
         combined_config = None
 
         for swagger_file in swagger_files:
-            swagger_file = swagger_file.strip()
-            if not os.path.isfile(swagger_file):
-                print(f"Error: Could not find {swagger_file}")
-                continue
-
             swagger_data = load_swagger(swagger_file)
 
             service_name = get_service_name(swagger_file)
@@ -205,9 +207,6 @@ if __name__ == "__main__":
         print(f"Success! '{args.output}' has been generated.")
         print(f"Total endpoints configured: {len(combined_config['endpoints'])}")
 
-    except FileNotFoundError:
-        print(f"Error: Could not find {args.swagger_file}")
-        exit(1)
     except MissingEnvVarError as e:
         print(f"Error: {e}")
         exit(1)
