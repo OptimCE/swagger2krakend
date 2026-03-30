@@ -38,9 +38,7 @@ def substitute_env_vars(obj):
         for match in matches:
             env_value = os.getenv(match)
             if env_value is None:
-                raise MissingEnvVarError(
-                    f"Environment variable '{match}' is not set but is required in config"
-                )
+                raise MissingEnvVarError(f"Environment variable '{match}' is not set but is required in config")
             obj = obj.replace(f"${{{match}}}", env_value)
         return obj
     elif isinstance(obj, dict):
@@ -74,9 +72,7 @@ def parse_swagger_entry(entry):
     return entry, None
 
 
-def generate_krakend_config(
-    swagger, api_host, service_prefix="", global_extra_config=None
-):
+def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_config=None):
     krakend_config = {
         "$schema": "https://www.krakend.io/schema/v2.13/krakend.json",
         "version": 3,
@@ -112,10 +108,12 @@ def generate_krakend_config(
         "endpoints": [],
     }
 
+    endpoint_extra_config = None
     if global_extra_config:
-        krakend_config["extra_config"] = merge_configs(
-            krakend_config["extra_config"], global_extra_config
-        )
+        endpoint_extra_config = {k: v for k, v in global_extra_config.items() if k == "auth/validator"}
+        non_auth_config = {k: v for k, v in global_extra_config.items() if k != "auth/validator"}
+        if non_auth_config:
+            krakend_config["extra_config"] = merge_configs(krakend_config["extra_config"], non_auth_config)
 
     paths = swagger.get("paths", {})
 
@@ -139,13 +137,11 @@ def generate_krakend_config(
                 ],
                 "method": method.upper(),
                 "output_encoding": encoding,
-                "backend": [
-                    {"url_pattern": path, "host": [api_host], "encoding": encoding}
-                ],
+                "backend": [{"url_pattern": path, "host": [api_host], "encoding": encoding}],
             }
 
-            if global_extra_config:
-                endpoint["extra_config"] = global_extra_config.copy()
+            if endpoint_extra_config:
+                endpoint["extra_config"] = endpoint_extra_config.copy()
 
             krakend_config["endpoints"].append(endpoint)
 
@@ -164,9 +160,7 @@ def parse_args():
         help="Path to Swagger YAML file(s). Use comma-separated for multiple files. "
         "Service name derived from filename (without extension).",
     )
-    parser.add_argument(
-        "-o", "--output", default=OUTPUT_FILE, help="Output JSON file path."
-    )
+    parser.add_argument("-o", "--output", default=OUTPUT_FILE, help="Output JSON file path.")
     parser.add_argument(
         "-e",
         "--extra-config",

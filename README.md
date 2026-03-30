@@ -56,7 +56,8 @@ python3 app.py 'swagger.yaml:http://localhost:3000' -e extra-config.json
       ["sub", "x-user-id"],
       ["groups", "x-user-groups"],
       ["orgs", "x-user-orgs"]
-    ]
+    ],
+    "cache": true
   }
 }
 ```

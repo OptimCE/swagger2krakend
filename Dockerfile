@@ -13,12 +13,16 @@ CMD ["python3", "-u", "app.py"]
 # ---- Test Generation Stage ----
 FROM base AS test-generator
 RUN mkdir -p test/output
+# Set environment variables for testing
+ENV KEYCLOAK_URL=http://keycloak:8080
+ENV REALM_NAME=optimce-realm
+ENV ISSUER=http://localhost:8081/realms/optimce-realm
 # Generate the output config from the samples
-RUN python3 app.py "test/samples/orders.yaml,test/samples/root.yaml,test/samples/users.yaml" -o test/output/krakend-output.json
+RUN python3 app.py "test/samples/orders.yaml:http://localhost:3001,test/samples/root.yaml:http://localhost:3000,test/samples/users.yaml:http://localhost:3002" -e test/samples/extra-config.json -o test/output/krakend-output.json
 # Generate the output config from the single sample
-RUN python3 app.py "test/samples/orders.yaml" -o test/output/krakend-output-single.json
-#Generate the output config from the single sample with root service name
-RUN python3 app.py "test/samples/root.yaml" -o test/output/krakend-output-root.json
+RUN python3 app.py "test/samples/orders.yaml:http://localhost:3001" -e test/samples/extra-config.json -o test/output/krakend-output-single.json
+# Generate the output config from the single sample with root service name
+RUN python3 app.py "test/samples/root.yaml:http://localhost:3000" -e test/samples/extra-config.json -o test/output/krakend-output-root.json
 
 # ---- Test Execution Stage ----
 FROM krakend:2.13.3 AS test
