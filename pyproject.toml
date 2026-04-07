@@ -2,7 +2,7 @@
 name = "swagger2krakend"
 version = "1.0.0"
 requires-python = ">=3.9"
-dependencies = ["PyYAML"]
+dependencies = ["PyYAML", "Jinja2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

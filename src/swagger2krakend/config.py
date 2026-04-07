@@ -2,7 +2,8 @@
 
 import json
 import os
-import re
+
+from jinja2 import Environment, StrictUndefined, TemplateError
 
 
 class MissingEnvVarError(Exception):
@@ -17,17 +18,25 @@ def load_extra_config(filepath):
         return json.load(file)
 
 
+def _render_template(template_str, env_vars):
+    """Render a Jinja template string with environment variables."""
+    env = Environment(undefined=StrictUndefined)
+    try:
+        template = env.from_string(template_str)
+        return template.render(**env_vars)
+    except TemplateError as e:
+        # Extract variable name from Jinja error message
+        var_name = str(e).split("'")[-2] if "'" in str(e) else str(e).split('"')[-2]
+        raise MissingEnvVarError(f"Environment variable '{var_name}' is not set but is required in config")
+
+
 def substitute_env_vars(obj):
-    """Recursively substitute ${VAR} patterns with environment variable values."""
+    """Recursively substitute environment variable references using Jinja templating.
+
+    Supports Jinja syntax like {{ VAR_NAME }} for environment variable substitution.
+    """
     if isinstance(obj, str):
-        pattern = r"\$\{([^}]+)\}"
-        matches = re.findall(pattern, obj)
-        for match in matches:
-            env_value = os.getenv(match)
-            if env_value is None:
-                raise MissingEnvVarError(f"Environment variable '{match}' is not set but is required in config")
-            obj = obj.replace(f"${{{match}}}", env_value)
-        return obj
+        return _render_template(obj, os.environ)
     elif isinstance(obj, dict):
         return {key: substitute_env_vars(value) for key, value in obj.items()}
     elif isinstance(obj, list):

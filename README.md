@@ -38,20 +38,22 @@ python3 app.py 'users.yaml:http://localhost:3001,orders.yaml:http://localhost:30
 
 ### Extra Config
 
-Use `extra-config.json` to define global endpoint configuration with environment variable substitution:
+Use `extra-config.json` to define global endpoint configuration with environment variable substitution using Jinja2 template syntax:
 
 ```bash
 python3 app.py 'swagger.yaml:http://localhost:3000' -e extra-config.json
 ```
+
+**Note:** Environment variables use Jinja2 syntax: `{{ VAR_NAME }}` instead of the old `${VAR_NAME}` syntax.
 
 #### extra-config.json example
 ```json
 {
   "auth/validator": {
     "alg": "RS256",
-    "jwk_url": "${KEYCLOAK_URL}/realms/${REALM_NAME}/protocol/openid-connect/certs",
+    "jwk_url": "{{ KEYCLOAK_URL }}/realms/{{ REALM_NAME }}/protocol/openid-connect/certs",
     "disable_jwk_security": true,
-    "issuer": "${ISSUER}",
+    "issuer": "{{ ISSUER }}",
     "propagate_claims": [
       ["sub", "x-user-id"],
       ["groups", "x-user-groups"],
@@ -88,13 +90,21 @@ python3 app.py 'root.yaml:http://localhost:3000,users.yaml:http://localhost:3001
 
 ## Requirements
 
+### Python
 - Python 3.x
 - PyYAML
+- Jinja2
 
 Install dependencies:
 ```bash
-pip install pyyaml
+pip install pyyaml jinja2
 ```
+
+### Docker (for testing)
+- Docker
+- KrakenD image (for validation tests)
+
+The test Dockerfile uses `krakend:2.13.3` for configuration validation.
 
 ## Code Quality
 
@@ -102,6 +112,21 @@ Format with black and lint with flake8:
 ```bash
 black app.py
 flake8 app.py
+```
+
+## Docker
+
+### Production Build
+```bash
+docker build -t swagger2krakend .
+docker run -v $(pwd)/input:/input -v $(pwd)/output:/output swagger2krakend 'input/swagger.yaml:http://localhost:3000' -o output/krakend.json
+```
+
+### Test Build
+Build and run tests with KrakenD validation:
+```bash
+docker build -t swagger2krakend-test -f Dockerfile.test .
+docker run swagger2krakend-test
 ```
 
 ## Exit Codes
