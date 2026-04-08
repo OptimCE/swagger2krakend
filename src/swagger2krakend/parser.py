@@ -24,9 +24,7 @@ def parse_swagger_entry(entry):
     if ":" in entry and not entry.endswith(":"):
         parts = entry.split(":", 1)
         filepath, potential_host = parts[0], parts[1]
-        if "://" in potential_host or potential_host.startswith("http"):
-            return filepath, potential_host
-        return entry, None
+        return filepath, potential_host
     return entry, None
 
 
@@ -35,7 +33,7 @@ def get_service_name(filepath):
     return Path(filepath).stem
 
 
-def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_config=None):
+def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_config=None, service_extra_config=None):
     """Generate a KrakenD configuration dict from a Swagger spec."""
     krakend_config = {
         "$schema": "https://www.krakend.io/schema/v2.13/krakend.json",
@@ -104,8 +102,12 @@ def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_c
                 "backend": [{"url_pattern": path, "host": [api_host], "encoding": encoding}],
             }
 
-            if endpoint_extra_config:
-                endpoint["extra_config"] = endpoint_extra_config.copy()
+            if endpoint_extra_config or service_extra_config:
+                combined_endpoint_config = (endpoint_extra_config or {}).copy()
+                if service_extra_config:
+                    combined_endpoint_config = merge_configs(combined_endpoint_config, service_extra_config)
+                if combined_endpoint_config:
+                    endpoint["extra_config"] = combined_endpoint_config
 
             krakend_config["endpoints"].append(endpoint)
 

@@ -3,6 +3,7 @@
 import json
 import os
 
+import yaml
 from jinja2 import Environment, StrictUndefined, TemplateError
 
 
@@ -18,6 +19,12 @@ def load_extra_config(filepath):
         return json.load(file)
 
 
+def load_builder_config(filepath):
+    """Load builder configuration from a YAML file."""
+    with open(filepath, "r") as file:
+        return yaml.safe_load(file)
+
+
 def _render_template(template_str, env_vars):
     """Render a Jinja template string with environment variables."""
     env = Environment(undefined=StrictUndefined)
@@ -30,17 +37,21 @@ def _render_template(template_str, env_vars):
         raise MissingEnvVarError(f"Environment variable '{var_name}' is not set but is required in config")
 
 
-def substitute_env_vars(obj):
+def substitute_env_vars(obj, local_vars=None):
     """Recursively substitute environment variable references using Jinja templating.
 
     Supports Jinja syntax like {{ VAR_NAME }} for environment variable substitution.
     """
+    env_vars = dict(os.environ)
+    if local_vars:
+        env_vars.update(local_vars)
+
     if isinstance(obj, str):
-        return _render_template(obj, os.environ)
+        return _render_template(obj, env_vars)
     elif isinstance(obj, dict):
-        return {key: substitute_env_vars(value) for key, value in obj.items()}
+        return {key: substitute_env_vars(value, local_vars) for key, value in obj.items()}
     elif isinstance(obj, list):
-        return [substitute_env_vars(item) for item in obj]
+        return [substitute_env_vars(item, local_vars) for item in obj]
     return obj
 
 

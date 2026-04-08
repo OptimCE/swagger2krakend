@@ -1,0 +1,17 @@
+global:
+  extra_config: test/samples/extra-config.json
+  variables:
+    KEYCLOAK_URL: http://keycloak:8080
+    REALM_NAME: optimce-realm
+    ISSUER: http://localhost:8081/realms/optimce-realm
+services:
+  orders:
+    swagger: test/samples/orders.yaml
+    host: http://localhost:3001
+    extra_config: test/samples/service-extra-config.json
+  root:
+    swagger: test/samples/root.yaml
+    host: http://localhost:3000
+  users:
+    swagger: test/samples/users.yaml
+    host: http://localhost:3002

@@ -8,44 +8,34 @@ import sys
 from swagger2krakend.config import (
     MissingEnvVarError,
     load_extra_config,
+    load_builder_config,
     substitute_env_vars,
 )
 from swagger2krakend.parser import (
     generate_krakend_config,
     get_service_name,
     load_swagger,
-    parse_swagger_entry,
 )
 
-DEFAULT_SWAGGER_FILE = "swagger.yaml"
-DEFAULT_EXTRA_CONFIG = "extra-config.json"
+DEFAULT_CONFIG_FILE = "krakend-builder.yaml"
 DEFAULT_OUTPUT_FILE = "krakend.json"
 
-SWAGGER_FILE = os.getenv("SWAGGER_FILE", DEFAULT_SWAGGER_FILE)
+CONFIG_FILE = os.getenv("CONFIG_FILE", DEFAULT_CONFIG_FILE)
 OUTPUT_FILE = os.getenv("OUTPUT_FILE", DEFAULT_OUTPUT_FILE)
-EXTRA_CONFIG = os.getenv("EXTRA_CONFIG", DEFAULT_EXTRA_CONFIG)
 
 
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Generate KrakenD config from Swagger/OpenAPI YAML files. "
-        "Supports single or multiple files (comma-separated)."
+        description="Generate KrakenD config from a YAML builder config."
     )
     parser.add_argument(
-        "swagger_file",
-        nargs="?",
-        default=SWAGGER_FILE,
-        help="Path to Swagger YAML file(s). Use comma-separated for multiple files. "
-        "Service name derived from filename (without extension).",
+        "-c",
+        "--config",
+        default=CONFIG_FILE,
+        help="Path to krakend-builder.yaml configuration file.",
     )
     parser.add_argument("-o", "--output", default=OUTPUT_FILE, help="Output JSON file path.")
-    parser.add_argument(
-        "-e",
-        "--extra-config",
-        default=EXTRA_CONFIG,
-        help="Path to extra-config.json file for global endpoint configuration.",
-    )
     return parser.parse_args()
 
 
@@ -55,41 +45,62 @@ def main(args=None):
         args = parse_args()
 
     try:
-        global_extra_config = None
-        if os.path.isfile(args.extra_config):
-            print(f"Loading extra config from: {args.extra_config}")
-            raw_config = load_extra_config(args.extra_config)
-            global_extra_config = substitute_env_vars(raw_config)
-
-        swagger_entries = [f.strip() for f in args.swagger_file.split(",")]
-        swagger_entries = [parse_swagger_entry(e) for e in swagger_entries]
-
-        missing_hosts = [f for f, h in swagger_entries if h is None]
-        if missing_hosts:
-            for f in missing_hosts:
-                print(f"Error: No host specified for {f}")
-            print("Error: All swagger files must specify a host (file:host syntax).")
+        if not os.path.isfile(args.config):
+            print(f"Error: Configuration file not found: {args.config}")
             sys.exit(1)
 
-        missing_files = [f for f, _ in swagger_entries if not os.path.isfile(f)]
-        if missing_files:
-            for f in missing_files:
-                print(f"Error: Could not find {f}")
-            print("Error: One or more swagger files not found.")
+        builder_config = load_builder_config(args.config)
+        
+        global_section = builder_config.get("global", {})
+        global_extra_config_path = global_section.get("extra_config")
+        global_vars = global_section.get("variables", {})
+
+        global_extra_config = None
+        if global_extra_config_path and os.path.isfile(global_extra_config_path):
+            print(f"Loading global extra config from: {global_extra_config_path}")
+            raw_config = load_extra_config(global_extra_config_path)
+            global_extra_config = substitute_env_vars(raw_config, global_vars)
+
+        services = builder_config.get("services", {})
+        if not services:
+            print("Error: No services defined in the configuration file.")
             sys.exit(1)
 
         combined_config = None
 
-        for filepath, api_host in swagger_entries:
-            swagger_data = load_swagger(filepath)
-            service_name = get_service_name(filepath)
-            service_prefix = "" if service_name == "root" else f"/{service_name}"
+        for service_key, service_options in services.items():
+            swagger_filepath = service_options.get("swagger")
+            api_host = service_options.get("host")
+            
+            if not swagger_filepath or not api_host:
+                print(f"Error: Service '{service_key}' must specify 'swagger' and 'host'.")
+                sys.exit(1)
+
+            if not os.path.isfile(swagger_filepath):
+                print(f"Error: Swagger file not found for service '{service_key}': {swagger_filepath}")
+                sys.exit(1)
+
+            service_vars = service_options.get("variables", {})
+            service_extra_config_path = service_options.get("extra_config")
+            
+            service_extra_config = None
+            if service_extra_config_path and os.path.isfile(service_extra_config_path):
+                print(f"Loading service extra config from: {service_extra_config_path}")
+                raw_config = load_extra_config(service_extra_config_path)
+                service_extra_config = substitute_env_vars(raw_config, service_vars)
+            
+            service_prefix = service_options.get("prefix")
+            if service_prefix is None:
+                service_prefix = "" if service_key == "root" else f"/{service_key}"
+
+            swagger_data = load_swagger(swagger_filepath)
 
             service_config = generate_krakend_config(
                 swagger_data,
                 api_host=api_host,
                 service_prefix=service_prefix,
                 global_extra_config=global_extra_config,
+                service_extra_config=service_extra_config,
             )
 
             if combined_config is None:
@@ -98,7 +109,7 @@ def main(args=None):
                 combined_config["endpoints"].extend(service_config["endpoints"])
 
         if combined_config is None:
-            print("Error: No valid swagger files found.")
+            print("Error: Could not generate configuration.")
             sys.exit(1)
 
         with open(args.output, "w") as f:

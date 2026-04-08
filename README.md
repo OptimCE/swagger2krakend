@@ -97,7 +97,7 @@ python3 app.py 'root.yaml:http://localhost:3000,users.yaml:http://localhost:3001
 
 Install dependencies:
 ```bash
-pip install pyyaml jinja2
+pip install -r requirements.txt
 ```
 
 ### Docker (for testing)
@@ -108,10 +108,10 @@ The test Dockerfile uses `krakend:2.13.3` for configuration validation.
 
 ## Code Quality
 
-Format with black and lint with flake8:
+Format with black and lint with ruff:
 ```bash
 black app.py
-flake8 app.py
+ruff app.py
 ```
 
 ## Docker
