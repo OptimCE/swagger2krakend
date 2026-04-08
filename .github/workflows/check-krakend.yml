@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build the test stage
-        run: docker build --target test -t swagger2krakend-test .
+        run: docker build -f Dockerfile.test -t swagger2krakend-test .
 
       - name: Run KrakenD Configuration Tests
         run: docker run --rm swagger2krakend-test
