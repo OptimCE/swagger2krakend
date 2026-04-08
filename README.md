@@ -1,59 +1,71 @@
 # Swagger to KrakenD Config Generator
 
-Convert Swagger/OpenAPI YAML files to KrakenD API gateway configuration.
+Convert Swagger/OpenAPI YAML files to KrakenD API gateway configuration using a declarative YAML builder configuration format.
 
 ## Features
 
-- **Single file mode**: Process one Swagger file with its backend host
-- **Multi-file mode**: Process multiple Swagger files (comma-separated)
-- **Per-file backend**: Each swagger file specifies its own backend host
-- **Service prefixing**: Each service's endpoints are prefixed with the filename (without extension)
-- **Root exception**: Files named `root.yaml` get no prefix (endpoints remain at root path)
-- **Optional extra-config**: Load external JSON only when `-e/--extra-config` is provided
-- **Template substitution**: Extra config supports `${VAR}` placeholders rendered with Jinja2
-- **File upload detection**: Special handling for multipart/form-data endpoints
-- **CI-ready**: Fails fast if any swagger file is missing or lacks a host
+- **Declarative YAML Configuration**: Configure your entire API gateway structure in a single `krakend-builder.yaml` file.
+- **Multi-file mode**: Process multiple Swagger/OpenAPI files into a single unified KrakenD configuration.
+- **Per-service Backends**: Each service specifies its own backend host and prefix.
+- **Service prefixing**: Service endpoints are mapped under their respective names automatically, with customizable overrides.
+- **Root exception**: Services named `root` (or with empty prefixes) get no prefix (endpoints remain at the root path).
+- **Extra-config injection**: Inject global and per-service extra plugins configs (like rate-limiting or JWT validation).
+- **Environment & Local Variable Substitution**: Powerful Jinja2 template variable injection `{{ VAR_NAME }}` from the environment or localized YAML variables.
+- **File upload detection**: Special handling for `multipart/form-data` endpoints.
 
 ## Usage
 
-### Syntax: `filepath:host`
-
-Each swagger file must specify its backend host using `filepath:host` syntax:
+Create a `krakend-builder.yaml` configuration file to map your backend services and Open API specifications.
 
 ```bash
-python3 app.py 'swagger.yaml:http://localhost:3000'
-python3 app.py 'users.yaml:http://localhost:3001,orders.yaml:http://localhost:3002'
+python3 app.py -c krakend-builder.yaml -o output/krakend.json
 ```
 
-**Note:** The URL must include the port number (e.g., `:8080`, `:3000`).
+### Builder Configuration (krakend-builder.yaml)
 
-### Single File
-```bash
-python3 app.py 'swagger.yaml:http://localhost:3000' -o custom-output.json
+```yaml
+global:
+  # Global configurations applied to all endpoints (e.g. Auth validators)
+  extra_config: ./config/auth.json
+  # Variables that will be substituted in the global extra_config
+  variables:
+    KEYCLOAK_URL: http://keycloak:8080/keycloak
+    REALM_NAME: optimce-realm
+    ISSUER: http://localhost:8087/keycloak/realms/optimce-realm
+
+services:
+  # The key 'crm-backend' is the service name (used as the default prefix: /crm-backend/...)
+  crm-backend:
+    swagger: ./docs/openapi/swagger.yaml
+    host: "http://crm-backend:80"
+    # Specific per-service configuration (e.g. Rate limits)
+    extra_config: ./config/ratelimit.json
+    variables:
+      max_rate: 100
+
+  # 'root' is a special key that maps directly to the root path (/) by default
+  root:
+    swagger: ./config/root.yaml
+    host: "http://crm-backend:80"
+    
+  # You can override the prefix explicitly
+  microservice:
+    swagger: ./microservice/openapi.yaml
+    host: "http://microservice:8080"
+    prefix: "/custom_prefix"
 ```
 
-### Multiple Files
-```bash
-python3 app.py 'users.yaml:http://localhost:3001,orders.yaml:http://localhost:3002' -o combined-config.json
-```
+### Extra Config (auth.json example)
 
-### Extra Config
+You can reference external JSON configuration files to apply KrakenD plugins. Jinja2 template syntax `{{ VAR_NAME }}` is supported and will be substituted from your builder's `variables` block or the system environment variables:
 
-Use `extra-config.json` to define global endpoint configuration with environment variable substitution.
-This file is loaded only when you pass `-e`:
-
-```bash
-python3 app.py 'swagger.yaml:http://localhost:3000' -e extra-config.json
-```
-
-#### extra-config.json example
 ```json
 {
   "auth/validator": {
     "alg": "RS256",
-    "jwk_url": "${KEYCLOAK_URL}/realms/${REALM_NAME}/protocol/openid-connect/certs",
+    "jwk_url": "{{ KEYCLOAK_URL }}/realms/{{ REALM_NAME }}/protocol/openid-connect/certs",
     "disable_jwk_security": true,
-    "issuer": "${ISSUER}",
+    "issuer": "{{ ISSUER }}",
     "propagate_claims": [
       ["sub", "x-user-id"],
       ["groups", "x-user-groups"],
@@ -64,48 +76,24 @@ python3 app.py 'swagger.yaml:http://localhost:3000' -e extra-config.json
 }
 ```
 
-### Extra Config Environment Variables
-
-Placeholders use `${VAR}` syntax and are rendered with Jinja2.
-
-- If all variables are set, rendering succeeds.
-- If one variable is missing, the command fails immediately with an explicit error.
-
-Example:
-
-```bash
-export KEYCLOAK_URL='https://kc.example.com'
-export REALM_NAME='myrealm'
-export ISSUER='https://kc.example.com/realms/myrealm'
-
-python3 app.py 'root.yaml:http://localhost:3000' -e extra-config.json
-```
-
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SWAGGER_FILE` | `swagger.yaml` | Input swagger file(s) with hosts (`file:host` syntax) |
-| `OUTPUT_FILE` | `krakend.json` | Output file path |
+| `CONFIG_FILE` | `krakend-builder.yaml` | Input builder YAML file path |
+| `OUTPUT_FILE` | `krakend.json` | Output generated KrakenD configuration file path |
+
+*Note: You can also pass any environment variables expected by your `extra_config` files if you don't define them explicitly inside the YAML `variables` blocks.*
 
 ### CLI Options
 
 ```bash
-python3 app.py [-h] [-o OUTPUT] [-e EXTRA_CONFIG] swagger_file [...]
-```
-
-### Root File Special Case
-
-Files named `root.yaml` get no prefix:
-
-```bash
-python3 app.py 'root.yaml:http://localhost:3000,users.yaml:http://localhost:3001'
-# root.yaml endpoints: /health, /version
-# users.yaml endpoints: /users/users, /users/{id}
+python3 app.py [-h] [-c CONFIG] [-o OUTPUT]
 ```
 
 ## Requirements
 
+### Python
 - Python 3.x
 - PyYAML
 - Jinja2
@@ -115,15 +103,36 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
+### Docker (for testing)
+- Docker
+- KrakenD image (for validation tests)
+
+The test Dockerfile natively pulls the KrakenD binary for configuration validation.
+
 ## Code Quality
 
-Format with black and lint with flake8:
+Format with black and lint with ruff:
 ```bash
-uvx black app.py
-uvx flake8 app.py
+black src/
+ruff check src/
+```
+
+## Docker
+
+### Production Build
+```bash
+docker build -t swagger2krakend .
+docker run -v $(pwd)/config:/config swagger2krakend python3 app.py -c /config/krakend-builder.yaml -o /config/krakend.json
+```
+
+### Test Build
+Build and run tests with KrakenD configuration JSON validation natively:
+```bash
+docker build -t swagger2krakend-test -f Dockerfile.test .
+docker run --rm swagger2krakend-test
 ```
 
 ## Exit Codes
 
 - `0`: Success
-- `1`: Error (missing swagger file, missing env var, missing host, etc.)
+- `1`: Error (missing files, parsing errors, syntax errors, missing variables)

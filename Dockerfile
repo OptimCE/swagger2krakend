@@ -1,3 +1,6 @@
+# Production Dockerfile for swagger2krakend
+# Builds a minimal production image for generating KrakenD configurations
+
 # ---- Base Stage ----
 FROM python:3-alpine AS base
 COPY requirements.txt .
@@ -9,27 +12,3 @@ RUN chmod +x app.py
 # ---- Release Stage (Default) ----
 FROM base AS release
 CMD ["python3", "-u", "app.py"]
-
-# ---- Test Generation Stage ----
-FROM base AS test-generator
-RUN mkdir -p test/output
-# Set environment variables for testing
-ENV KEYCLOAK_URL=http://keycloak:8080
-ENV REALM_NAME=optimce-realm
-ENV ISSUER=http://localhost:8081/realms/optimce-realm
-# Generate the output config from the samples
-RUN python3 app.py "test/samples/orders.yaml:http://localhost:3001,test/samples/root.yaml:http://localhost:3000,test/samples/users.yaml:http://localhost:3002" -e test/samples/extra-config.json -o test/output/krakend-output.json
-# Generate the output config from the single sample
-RUN python3 app.py "test/samples/orders.yaml:http://localhost:3001" -e test/samples/extra-config.json -o test/output/krakend-output-single.json
-# Generate the output config from the single sample with root service name
-RUN python3 app.py "test/samples/root.yaml:http://localhost:3000" -e test/samples/extra-config.json -o test/output/krakend-output-root.json
-
-# ---- Test Execution Stage ----
-FROM krakend:2.13.3 AS test
-# Copy the generated configuration from the generator stage
-COPY --from=test-generator /app/test/output/krakend-output.json krakend-output.json
-COPY --from=test-generator /app/test/output/krakend-output-single.json krakend-output-single.json
-COPY --from=test-generator /app/test/output/krakend-output-root.json krakend-output-root.json
-
-# Run the KrakenD check commands on all generated configurations
-CMD ["/bin/sh", "-c", "krakend check -tnc krakend-output.json && krakend check -tnc krakend-output-single.json && krakend check -tnc krakend-output-root.json"]

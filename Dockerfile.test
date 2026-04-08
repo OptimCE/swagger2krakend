@@ -1,0 +1,34 @@
+# Dockerfile for testing - generates configurations and validates them with KrakenD
+
+# ---- Base Stage ----
+FROM python:3-alpine AS base
+COPY requirements.txt .
+RUN pip3 install -r requirements.txt
+WORKDIR /app
+COPY . .
+RUN chmod +x app.py
+
+# ---- Test Generation Stage ----
+FROM base AS test-generator
+RUN mkdir -p test/output
+# Set environment variables for testing
+ENV KEYCLOAK_URL=http://keycloak:8080
+ENV REALM_NAME=optimce-realm
+ENV ISSUER=http://localhost:8081/realms/optimce-realm
+# Generate the output config from the samples
+RUN python3 app.py -c test/samples/builder-multi.yaml -o test/output/krakend-output.json
+# Generate the output config from the single sample
+RUN python3 app.py -c test/samples/builder-single.yaml -o test/output/krakend-output-single.json
+# Generate the output config from the single sample with root service name
+RUN python3 app.py -c test/samples/builder-root.yaml -o test/output/krakend-output-root.json
+
+# ---- Test Execution Stage ----
+FROM base AS test
+# Copy the krakend binary to run checks in the python environment
+COPY --from=krakend:2.13.3 /usr/bin/krakend /usr/bin/krakend
+
+# Copy the generated configuration from the generator stage
+COPY --from=test-generator /app/test/output /app/test/output
+
+# Run the KrakenD check commands and our python verifications on generated configurations
+CMD ["/bin/sh", "-c", "krakend check -tnc test/output/krakend-output.json && krakend check -tnc test/output/krakend-output-single.json && krakend check -tnc test/output/krakend-output-root.json && python3 test/test_output.py"]
