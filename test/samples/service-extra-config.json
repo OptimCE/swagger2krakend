@@ -1,0 +1,7 @@
+{
+    "qos/ratelimit/router": {
+        "max_rate": 100,
+        "client_max_rate": 10,
+        "strategy": "ip"
+    }
+}

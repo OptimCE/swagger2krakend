@@ -1,64 +1,138 @@
 # Swagger to KrakenD Config Generator
 
-This tool converts Swagger/OpenAPI YAML files to KrakenD API gateway configuration.
+Convert Swagger/OpenAPI YAML files to KrakenD API gateway configuration using a declarative YAML builder configuration format.
 
 ## Features
 
-- **Single file mode**: Process one Swagger file (backward compatible)
-- **Multi-file mode**: Process multiple Swagger files (comma-separated)
-- **Service prefixing**: Each service's endpoints are prefixed with the filename (without extension)
-- **Root exception**: Files named `root.yaml` get no prefix (endpoints remain at root path)
-- **Keycloak integration**: Automatic authentication configuration for all endpoints
-- **File upload detection**: Special handling for multipart/form-data endpoints
+- **Declarative YAML Configuration**: Configure your entire API gateway structure in a single `krakend-builder.yaml` file.
+- **Multi-file mode**: Process multiple Swagger/OpenAPI files into a single unified KrakenD configuration.
+- **Per-service Backends**: Each service specifies its own backend host and prefix.
+- **Service prefixing**: Service endpoints are mapped under their respective names automatically, with customizable overrides.
+- **Root exception**: Services named `root` (or with empty prefixes) get no prefix (endpoints remain at the root path).
+- **Extra-config injection**: Inject global and per-service extra plugins configs (like rate-limiting or JWT validation).
+- **Environment & Local Variable Substitution**: Powerful Jinja2 template variable injection `{{ VAR_NAME }}` from the environment or localized YAML variables.
+- **File upload detection**: Special handling for `multipart/form-data` endpoints.
 
 ## Usage
 
-### Single File (Original Behavior)
+Create a `krakend-builder.yaml` configuration file to map your backend services and Open API specifications.
+
 ```bash
-python app.py swagger.yaml
-python app.py swagger.yaml -o custom-output.json
+python3 app.py -c krakend-builder.yaml -o output/krakend.json
 ```
 
-### Multiple Files (New Feature)
-```bash
-python app.py users.yaml,orders.yaml,payments.yaml
-python app.py users.yaml,orders.yaml -o combined-config.json
+### Builder Configuration (krakend-builder.yaml)
+
+```yaml
+global:
+  # Global configurations applied to all endpoints (e.g. Auth validators)
+  extra_config: ./config/auth.json
+  # Variables that will be substituted in the global extra_config
+  variables:
+    KEYCLOAK_URL: http://keycloak:8080/keycloak
+    REALM_NAME: optimce-realm
+    ISSUER: http://localhost:8087/keycloak/realms/optimce-realm
+
+services:
+  # The key 'crm-backend' is the service name (used as the default prefix: /crm-backend/...)
+  crm-backend:
+    swagger: ./docs/openapi/swagger.yaml
+    host: "http://crm-backend:80"
+    # Specific per-service configuration (e.g. Rate limits)
+    extra_config: ./config/ratelimit.json
+    variables:
+      max_rate: 100
+
+  # 'root' is a special key that maps directly to the root path (/) by default
+  root:
+    swagger: ./config/root.yaml
+    host: "http://crm-backend:80"
+    
+  # You can override the prefix explicitly
+  microservice:
+    swagger: ./microservice/openapi.yaml
+    host: "http://microservice:8080"
+    prefix: "/custom_prefix"
 ```
 
-### Root File Special Case
-If you have a file named `root.yaml`, its endpoints will NOT be prefixed:
-```bash
-python app.py root.yaml,users.yaml
-# root.yaml endpoints: /health, /version
-# users.yaml endpoints: /users/users, /users/{id}, etc.
+### Extra Config (auth.json example)
+
+You can reference external JSON configuration files to apply KrakenD plugins. Jinja2 template syntax `{{ VAR_NAME }}` is supported and will be substituted from your builder's `variables` block or the system environment variables:
+
+```json
+{
+  "auth/validator": {
+    "alg": "RS256",
+    "jwk_url": "{{ KEYCLOAK_URL }}/realms/{{ REALM_NAME }}/protocol/openid-connect/certs",
+    "disable_jwk_security": true,
+    "issuer": "{{ ISSUER }}",
+    "propagate_claims": [
+      ["sub", "x-user-id"],
+      ["groups", "x-user-groups"],
+      ["orgs", "x-user-orgs"]
+    ],
+    "cache": true
+  }
+}
 ```
 
-## Output
+### Environment Variables
 
-The tool generates a KrakenD configuration file (`krakend.json` by default) with:
-- Basic KrakenD configuration (version 3, port 8080)
-- Telemetry and CORS settings
-- Keycloak authentication for all endpoints
-- All endpoints from all processed services
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONFIG_FILE` | `krakend-builder.yaml` | Input builder YAML file path |
+| `OUTPUT_FILE` | `krakend.json` | Output generated KrakenD configuration file path |
 
-## Example
+*Note: You can also pass any environment variables expected by your `extra_config` files if you don't define them explicitly inside the YAML `variables` blocks.*
 
-Given these files:
-- `users.yaml` with endpoints: `/users`, `/users/{id}`
-- `orders.yaml` with endpoints: `/orders`, `/orders/{id}`
-- `root.yaml` with endpoints: `/health`, `/version`
+### CLI Options
 
-Running: `python app.py root.yaml,users.yaml,orders.yaml`
-
-Would produce endpoints:
-- `/health` (from root.yaml)
-- `/version` (from root.yaml)
-- `/users/users` (from users.yaml)
-- `/users/users/{id}` (from users.yaml)
-- `/orders/orders` (from orders.yaml)
-- `/orders/orders/{id}` (from orders.yaml)
+```bash
+python3 app.py [-h] [-c CONFIG] [-o OUTPUT]
+```
 
 ## Requirements
 
+### Python
 - Python 3.x
-- PyYAML (`pip install pyyaml`)
+- PyYAML
+- Jinja2
+
+Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+### Docker (for testing)
+- Docker
+- KrakenD image (for validation tests)
+
+The test Dockerfile natively pulls the KrakenD binary for configuration validation.
+
+## Code Quality
+
+Format with black and lint with ruff:
+```bash
+black src/
+ruff check src/
+```
+
+## Docker
+
+### Production Build
+```bash
+docker build -t swagger2krakend .
+docker run -v $(pwd)/config:/config swagger2krakend python3 app.py -c /config/krakend-builder.yaml -o /config/krakend.json
+```
+
+### Test Build
+Build and run tests with KrakenD configuration JSON validation natively:
+```bash
+docker build -t swagger2krakend-test -f Dockerfile.test .
+docker run --rm swagger2krakend-test
+```
+
+## Exit Codes
+
+- `0`: Success
+- `1`: Error (missing files, parsing errors, syntax errors, missing variables)
