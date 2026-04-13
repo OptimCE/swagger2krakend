@@ -41,10 +41,14 @@ def substitute_env_vars(obj, local_vars=None):
     """Recursively substitute environment variable references using Jinja templating.
 
     Supports Jinja syntax like {{ VAR_NAME }} for environment variable substitution.
+    Environment variables serve as fallback when a variable is not defined or is empty
+    in the local_vars (config) dict.
     """
     env_vars = dict(os.environ)
     if local_vars:
-        env_vars.update(local_vars)
+        for key, value in local_vars.items():
+            if value:
+                env_vars[key] = value
 
     if isinstance(obj, str):
         return _render_template(obj, env_vars)
