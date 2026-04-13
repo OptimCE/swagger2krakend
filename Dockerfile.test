@@ -31,4 +31,4 @@ COPY --from=krakend:2.13.3 /usr/bin/krakend /usr/bin/krakend
 COPY --from=test-generator /app/test/output /app/test/output
 
 # Run the KrakenD check commands and our python verifications on generated configurations
-CMD ["/bin/sh", "-c", "krakend check -tnc test/output/krakend-output.json && krakend check -tnc test/output/krakend-output-single.json && krakend check -tnc test/output/krakend-output-root.json && python3 test/test_output.py"]
+CMD ["/bin/sh", "-c", "krakend check -tnc test/output/krakend-output.json && krakend check -tnc test/output/krakend-output-single.json && krakend check -tnc test/output/krakend-output-root.json && python3 test/test_output.py && PYTHONPATH=src python3 test/test_config.py"]
