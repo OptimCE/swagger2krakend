@@ -97,6 +97,7 @@ def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_c
                     "Content-Length",
                     "Content-Type",
                 ],
+                "input_query_strings": ["*"],
                 "method": method.upper(),
                 "output_encoding": encoding,
                 "backend": [{"url_pattern": path, "host": [api_host], "encoding": encoding}],
