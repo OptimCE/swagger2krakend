@@ -84,7 +84,11 @@ def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_c
             if method not in ["get", "post", "put", "delete", "patch", "options"]:
                 continue
 
-            is_upload = "multipart/form-data" in details.get("consumes", [])
+            is_upload = (
+                "multipart/form-data" in details.get("consumes", [])
+                or "multipart/form-data"
+                in details.get("requestBody", {}).get("content", {})
+            )
             encoding = "no-op" if is_upload else "json"
 
             endpoint = {
