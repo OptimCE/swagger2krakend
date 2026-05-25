@@ -53,6 +53,7 @@ def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_c
                 "allow_methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
                 "allow_headers": [
                     "Authorization",
+                    "Accept-Language"
                     "Content-Type",
                     "x-community-id",
                     "x-user-id",
@@ -64,6 +65,7 @@ def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_c
                     "x-user-groups",
                     "x-user-orgs",
                     "x-community-id",
+                    "Accept-Language"
                 ],
             },
         },
@@ -100,6 +102,7 @@ def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_c
                     "x-user-orgs",
                     "Content-Length",
                     "Content-Type",
+                    "Accept-Language"
                 ],
                 "input_query_strings": ["*"],
                 "method": method.upper(),
