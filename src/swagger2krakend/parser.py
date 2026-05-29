@@ -33,6 +33,38 @@ def get_service_name(filepath):
     return Path(filepath).stem
 
 
+JSON_MEDIA_TYPES = {"application/json", "application/problem+json"}
+
+
+def _resolve_response(response, swagger):
+    """Resolve a response object, following a local $ref into components.responses."""
+    ref = response.get("$ref")
+    if ref and ref.startswith("#/components/responses/"):
+        name = ref.rsplit("/", 1)[-1]
+        return swagger.get("components", {}).get("responses", {}).get(name, {})
+    return response
+
+
+def _is_file_response(details, swagger):
+    """Return True when an operation's success (2xx) response is a file/binary download.
+
+    Detected by a content media type other than JSON, or a schema with format: binary.
+    Such endpoints must use KrakenD's 'no-op' encoding so the gateway streams the body
+    instead of trying to JSON-parse it.
+    """
+    for status, response in details.get("responses", {}).items():
+        if not str(status).startswith("2"):
+            continue
+        content = _resolve_response(response, swagger).get("content", {})
+        for media_type, media_obj in content.items():
+            if media_type not in JSON_MEDIA_TYPES:
+                return True
+            schema = (media_obj or {}).get("schema", {})
+            if isinstance(schema, dict) and schema.get("format") == "binary":
+                return True
+    return False
+
+
 def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_config=None, service_extra_config=None):
     """Generate a KrakenD configuration dict from a Swagger spec."""
     krakend_config = {
@@ -53,7 +85,7 @@ def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_c
                 "allow_methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
                 "allow_headers": [
                     "Authorization",
-                    "Accept-Language"
+                    "Accept-Language",
                     "Content-Type",
                     "x-community-id",
                     "x-user-id",
@@ -65,7 +97,8 @@ def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_c
                     "x-user-groups",
                     "x-user-orgs",
                     "x-community-id",
-                    "Accept-Language"
+                    "Accept-Language",
+                    "Content-Disposition"
                 ],
             },
         },
@@ -91,7 +124,8 @@ def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_c
                 or "multipart/form-data"
                 in details.get("requestBody", {}).get("content", {})
             )
-            encoding = "no-op" if is_upload else "json"
+            is_download = _is_file_response(details, swagger)
+            encoding = "no-op" if (is_upload or is_download) else "json"
 
             endpoint = {
                 "endpoint": f"{service_prefix}{path}",
