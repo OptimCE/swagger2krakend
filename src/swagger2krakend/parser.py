@@ -75,6 +75,13 @@ def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_c
         "timeout": "3000ms",
         "cache_ttl": "0s",
         "extra_config": {
+            # Forward the raw error body of a single backend to the client (paired with
+            # each backend's backend/http.return_error_code). Without this, KrakenD
+            # obfuscates non-2xx responses and strips the body, so structured error
+            # codes (e.g. member 50013 "member_has_active_meters") never reach the SPA.
+            "router": {
+                "return_error_msg": True,
+            },
             "telemetry/logging": {
                 "level": "INFO",
                 "prefix": "[KRAKEND]",
@@ -141,7 +148,18 @@ def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_c
                 "input_query_strings": ["*"],
                 "method": method.upper(),
                 "output_encoding": encoding,
-                "backend": [{"url_pattern": path, "host": [api_host], "encoding": encoding}],
+                "backend": [
+                    {
+                        "url_pattern": path,
+                        "host": [api_host],
+                        "encoding": encoding,
+                        # Return the backend's real HTTP status code instead of an
+                        # obfuscated 500. Paired with the global router.return_error_msg,
+                        # this forwards the backend error body verbatim so the SPA can
+                        # read error_code. Ignored on no-op encodings (already stream the body).
+                        "extra_config": {"backend/http": {"return_error_code": True}},
+                    }
+                ],
             }
 
             if endpoint_extra_config or service_extra_config:
