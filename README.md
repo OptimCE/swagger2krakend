@@ -38,6 +38,11 @@ python3 app.py -c krakend-builder.yaml -o output/krakend.json
 global:
   # Global configurations applied to all endpoints (e.g. Auth validators)
   extra_config: ./config/auth.json
+  # Optional gateway settings applied to generated endpoint configs.
+  timeout: 30s
+  input_headers:
+    - Authorization
+    - Content-Type
   # Variables that will be substituted in the global extra_config
   variables:
     KEYCLOAK_URL: http://keycloak:8080/keycloak
@@ -64,7 +69,21 @@ services:
     swagger: ./microservice/openapi.yaml
     host: "http://microservice:8080"
     prefix: "/custom_prefix"
+    # Public services can opt out of global auth/validator injection.
+    auth: false
 ```
+
+`auth` defaults to `true`. Set `auth: false` for hand-written public
+passthroughs such as health probes and documentation endpoints. Path parameters
+are normalized positionally (`{p1}`, `{p2}`, ...) to avoid KrakenD router
+conflicts when routes use different parameter names at the same segment.
+
+The generator provides backward-compatible fallback values for timeout,
+forwarded headers, logging, error handling, and CORS. Use `global.timeout` and
+`global.input_headers` to override the timeout and request headers. Use the
+global extra-config file to override CORS settings; non-auth global settings
+are merged into the root KrakenD configuration and list values replace the
+fallback lists.
 
 ### Extra Config (auth.json example)
 
@@ -86,6 +105,25 @@ You can reference external JSON configuration files to apply KrakenD plugins. Ji
   }
 }
 ```
+
+For example, a Med2Go builder can override the fallback CORS configuration
+without changing the parser:
+
+```json
+{
+  "security/cors": {
+    "allow_origins": ["http://localhost:4200"],
+    "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    "allow_headers": ["Authorization", "Content-Type", "Accept-Language", "X-Request-ID"],
+    "expose_headers": ["Content-Disposition", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-Request-ID"],
+    "allow_credentials": true,
+    "max_age": "12h"
+  }
+}
+```
+
+The repository's Med2Go example is in `../krakend/global-extra.json` and is
+referenced by `../krakend/krakend-builder.yaml`.
 
 ### Environment Variables
 

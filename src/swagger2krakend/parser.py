@@ -1,5 +1,6 @@
 """Swagger/OpenAPI parser and KrakenD config generator."""
 
+from copy import deepcopy
 from pathlib import Path
 
 import yaml
@@ -35,6 +36,77 @@ def get_service_name(filepath):
 
 JSON_MEDIA_TYPES = {"application/json", "application/problem+json"}
 
+# Default headers forwarded to backends when the builder config does not set
+# global.input_headers. Note that headers injected by auth/validator's
+# propagate_claims are stripped unless declared here — the input_headers filter
+# applies to the final header set.
+DEFAULT_INPUT_HEADERS = [
+    "x-user-id",
+    "x-community-id",
+    "x-user-groups",
+    "x-user-orgs",
+    "Content-Length",
+    "Content-Type",
+    "Accept-Language",
+]
+
+# Backward-compatible fallback for callers that do not provide a global
+# extra_config. Applications should override security/cors through the builder
+# configuration when they need non-default origins or headers.
+DEFAULT_EXTRA_CONFIG = {
+    "router": {
+        "return_error_msg": True,
+    },
+    "telemetry/logging": {
+        "level": "INFO",
+        "prefix": "[KRAKEND]",
+        "stdout": True,
+    },
+    "security/cors": {
+        "allow_origins": ["*"],
+        "allow_methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        "allow_headers": [
+            "Authorization",
+            "Accept-Language",
+            "Content-Type",
+            "x-community-id",
+            "x-user-id",
+            "x-user-groups",
+            "x-user-orgs",
+        ],
+        "expose_headers": [
+            "x-user-id",
+            "x-user-groups",
+            "x-user-orgs",
+            "x-community-id",
+            "Accept-Language",
+            "Content-Disposition",
+        ],
+    },
+}
+
+
+def _normalize_path_params(path):
+    """Rename whole-segment path params positionally ({p1}, {p2}, ...).
+
+    KrakenD's router (gin) panics when two routes use DIFFERENT param names at
+    the same segment position — e.g. /prices/{medicine_id} vs
+    /prices/{medicine_price_id}/price. Param names are internal to KrakenD:
+    the captured value is substituted into the identical url_pattern either
+    way, so positional renaming is transparent to the backend. Segments that
+    are not a bare {param} (e.g. {token}.ics) are left untouched.
+    """
+    segments = path.split("/")
+    count = 0
+    normalized = []
+    for segment in segments:
+        if segment.startswith("{") and segment.endswith("}"):
+            count += 1
+            normalized.append(f"{{p{count}}}")
+        else:
+            normalized.append(segment)
+    return "/".join(normalized)
+
 
 def _resolve_response(response, swagger):
     """Resolve a response object, following a local $ref into components.responses."""
@@ -65,56 +137,47 @@ def _is_file_response(details, swagger):
     return False
 
 
-def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_config=None, service_extra_config=None):
-    """Generate a KrakenD configuration dict from a Swagger spec."""
+def generate_krakend_config(
+    swagger,
+    api_host,
+    service_prefix="",
+    global_extra_config=None,
+    service_extra_config=None,
+    include_auth=True,
+    input_headers=None,
+    timeout="3000ms",
+):
+    """Generate a KrakenD configuration dict from a Swagger spec.
+
+    include_auth=False skips the global auth/validator injection for this
+    service (public, unauthenticated endpoints). input_headers overrides
+    DEFAULT_INPUT_HEADERS; timeout sets the service-level gateway timeout.
+    """
+    if input_headers is None:
+        input_headers = DEFAULT_INPUT_HEADERS
+
     krakend_config = {
         "$schema": "https://www.krakend.io/schema/v2.13/krakend.json",
         "version": 3,
         "name": swagger.get("info", {}).get("title", "API Gateway"),
         "port": 8080,
-        "timeout": "3000ms",
+        "timeout": timeout,
         "cache_ttl": "0s",
-        "extra_config": {
-            # Forward the raw error body of a single backend to the client (paired with
-            # each backend's backend/http.return_error_code). Without this, KrakenD
-            # obfuscates non-2xx responses and strips the body, so structured error
-            # codes (e.g. member 50013 "member_has_active_meters") never reach the SPA.
-            "router": {
-                "return_error_msg": True,
-            },
-            "telemetry/logging": {
-                "level": "INFO",
-                "prefix": "[KRAKEND]",
-                "stdout": True,
-            },
-            "security/cors": {
-                "allow_origins": ["*"],
-                "allow_methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-                "allow_headers": [
-                    "Authorization",
-                    "Accept-Language",
-                    "Content-Type",
-                    "x-community-id",
-                    "x-user-id",
-                    "x-user-groups",
-                    "x-user-orgs",
-                ],
-                "expose_headers": [
-                    "x-user-id",
-                    "x-user-groups",
-                    "x-user-orgs",
-                    "x-community-id",
-                    "Accept-Language",
-                    "Content-Disposition"
-                ],
-            },
-        },
+        # Forward the raw error body of a single backend to the client (paired with
+        # each backend's backend/http.return_error_code). Without this, KrakenD
+        # obfuscates non-2xx responses and strips the body, so structured error
+        # codes (e.g. member 50013 "member_has_active_meters") never reach the SPA.
+        "extra_config": deepcopy(DEFAULT_EXTRA_CONFIG),
         "endpoints": [],
     }
 
     endpoint_extra_config = None
     if global_extra_config:
-        endpoint_extra_config = {k: v for k, v in global_extra_config.items() if k == "auth/validator"}
+        # auth/validator is gated per-service (include_auth) so public services
+        # stay unauthenticated; non-auth globals (e.g. security/cors) always
+        # merge into the root extra_config.
+        if include_auth:
+            endpoint_extra_config = {k: v for k, v in global_extra_config.items() if k == "auth/validator"}
         non_auth_config = {k: v for k, v in global_extra_config.items() if k != "auth/validator"}
         if non_auth_config:
             krakend_config["extra_config"] = merge_configs(krakend_config["extra_config"], non_auth_config)
@@ -126,31 +189,22 @@ def generate_krakend_config(swagger, api_host, service_prefix="", global_extra_c
             if method not in ["get", "post", "put", "delete", "patch", "options"]:
                 continue
 
-            is_upload = (
-                "multipart/form-data" in details.get("consumes", [])
-                or "multipart/form-data"
-                in details.get("requestBody", {}).get("content", {})
-            )
+            is_upload = "multipart/form-data" in details.get("consumes", []) or "multipart/form-data" in details.get(
+                "requestBody", {}
+            ).get("content", {})
             is_download = _is_file_response(details, swagger)
             encoding = "no-op" if (is_upload or is_download) else "json"
 
+            normalized_path = _normalize_path_params(path)
             endpoint = {
-                "endpoint": f"{service_prefix}{path}",
-                "input_headers": [
-                    "x-user-id",
-                    "x-community-id",
-                    "x-user-groups",
-                    "x-user-orgs",
-                    "Content-Length",
-                    "Content-Type",
-                    "Accept-Language"
-                ],
+                "endpoint": f"{service_prefix}{normalized_path}",
+                "input_headers": input_headers,
                 "input_query_strings": ["*"],
                 "method": method.upper(),
                 "output_encoding": encoding,
                 "backend": [
                     {
-                        "url_pattern": path,
+                        "url_pattern": normalized_path,
                         "host": [api_host],
                         "encoding": encoding,
                         # Return the backend's real HTTP status code instead of an
