@@ -51,6 +51,8 @@ def main(args=None):
         global_section = builder_config.get("global", {})
         global_extra_config_path = global_section.get("extra_config")
         global_vars = global_section.get("variables", {})
+        global_input_headers = global_section.get("input_headers")
+        global_timeout = global_section.get("timeout", "3000ms")
 
         global_extra_config = None
         if global_extra_config_path and os.path.isfile(global_extra_config_path):
@@ -90,6 +92,10 @@ def main(args=None):
             if service_prefix is None:
                 service_prefix = "" if service_key == "root" else f"/{service_key}"
 
+            # auth: false marks the service public — the global auth/validator
+            # is not injected into its endpoints (e.g. health probes, docs).
+            service_auth = service_options.get("auth", True)
+
             swagger_data = load_swagger(swagger_filepath)
 
             service_config = generate_krakend_config(
@@ -98,6 +104,9 @@ def main(args=None):
                 service_prefix=service_prefix,
                 global_extra_config=global_extra_config,
                 service_extra_config=service_extra_config,
+                include_auth=service_auth,
+                input_headers=global_input_headers,
+                timeout=global_timeout,
             )
 
             if combined_config is None:
