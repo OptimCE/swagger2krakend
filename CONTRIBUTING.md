@@ -49,11 +49,16 @@ docker run --rm swagger2krakend-test
 
 This builds the sample configurations from `test/samples/`, runs `krakend check`
 on each generated output, and executes the assertions in `test/test_output.py`.
-The configuration unit tests can also be run directly:
+The unit tests can also be run directly:
 
 ```bash
 PYTHONPATH=src python3 test/test_config.py
+PYTHONPATH=src python3 test/test_parser.py
+PYTHONPATH=src python3 test/test_passthrough.py
 ```
+
+New test files only run in CI once they are appended to the `CMD` chain in
+`Dockerfile.test` — that chain is the entire test gate.
 
 See the [README](README.md) for the builder configuration format, the CLI
 options, and how the tool fits into the gateway.

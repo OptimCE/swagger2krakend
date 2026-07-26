@@ -146,12 +146,17 @@ def generate_krakend_config(
     include_auth=True,
     input_headers=None,
     timeout="3000ms",
+    stream_timeout=None,
+    passthrough=False,
 ):
     """Generate a KrakenD configuration dict from a Swagger spec.
 
     include_auth=False skips the global auth/validator injection for this
     service (public, unauthenticated endpoints). input_headers overrides
     DEFAULT_INPUT_HEADERS; timeout sets the service-level gateway timeout.
+    passthrough=True forces the 'no-op' encoding on every endpoint, turning the
+    gateway into a transparent reverse proxy; stream_timeout overrides the
+    timeout on streaming/download endpoints only.
     """
     if input_headers is None:
         input_headers = DEFAULT_INPUT_HEADERS
@@ -193,7 +198,13 @@ def generate_krakend_config(
                 "requestBody", {}
             ).get("content", {})
             is_download = _is_file_response(details, swagger)
-            encoding = "no-op" if (is_upload or is_download) else "json"
+            # Streaming/download endpoints ALWAYS need no-op so the gateway pipes the body
+            # through; with `passthrough` every other endpoint does too. Tracked separately
+            # from `encoding` because `stream_timeout` keys off the KIND of endpoint, not off
+            # the encoding — otherwise enabling `passthrough` would silently hand the long
+            # streaming timeout to every endpoint.
+            is_stream = is_upload or is_download
+            encoding = "no-op" if (passthrough or is_stream) else "json"
 
             normalized_path = _normalize_path_params(path)
             endpoint = {
@@ -215,6 +226,11 @@ def generate_krakend_config(
                     }
                 ],
             }
+
+            # Streaming / download endpoints (SSE, file exports) must not be killed by the
+            # short global timeout — give them a longer per-endpoint one when asked.
+            if is_stream and stream_timeout:
+                endpoint["timeout"] = stream_timeout
 
             if endpoint_extra_config or service_extra_config:
                 combined_endpoint_config = (endpoint_extra_config or {}).copy()

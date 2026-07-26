@@ -53,6 +53,9 @@ def main(args=None):
         global_vars = global_section.get("variables", {})
         global_input_headers = global_section.get("input_headers")
         global_timeout = global_section.get("timeout", "3000ms")
+        # Optional gateway-wide overrides (default to the tool's historical behaviour).
+        global_stream_timeout = global_section.get("stream_timeout")
+        global_passthrough = global_section.get("passthrough", False)
 
         global_extra_config = None
         if global_extra_config_path and os.path.isfile(global_extra_config_path):
@@ -107,6 +110,8 @@ def main(args=None):
                 include_auth=service_auth,
                 input_headers=global_input_headers,
                 timeout=global_timeout,
+                stream_timeout=global_stream_timeout,
+                passthrough=global_passthrough,
             )
 
             if combined_config is None:

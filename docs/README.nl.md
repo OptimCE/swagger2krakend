@@ -23,6 +23,8 @@ Converteer Swagger/OpenAPI-YAML-bestanden naar een KrakenD API-gateway-configura
 - **Extra-config-injectie**: injecteer globale en servicespecifieke extra plugin-configuraties (zoals snelheidsbeperking of JWT-validatie).
 - **Substitutie van omgevings- en lokale variabelen**: krachtige injectie van Jinja2-templatevariabelen `{{ VAR_NAME }}` vanuit de omgeving of lokale YAML-variabelen.
 - **Detectie van bestandsuploads**: speciale behandeling voor `multipart/form-data`-endpoints.
+- **Transparante proxymodus**: optionele `no-op`-codering op elk endpoint, die statuscodes, bodies en headers van de backend ongewijzigd doorgeeft.
+- **Streaming-time-outs**: optionele langere time-out die alleen op upload- en bestandsdownload-endpoints wordt toegepast.
 
 ## Gebruik
 
@@ -38,6 +40,13 @@ python3 app.py -c krakend-builder.yaml -o output/krakend.json
 global:
   # Global configurations applied to all endpoints (e.g. Auth validators)
   extra_config: ./config/auth.json
+  # Optional gateway settings applied to generated endpoint configs.
+  timeout: 30s
+  stream_timeout: 3600s   # only applied to upload / file-download endpoints
+  passthrough: true       # no-op encoding everywhere -> transparent reverse proxy
+  input_headers:
+    - Authorization
+    - Content-Type
   # Variables that will be substituted in the global extra_config
   variables:
     KEYCLOAK_URL: http://keycloak:8080/keycloak
@@ -64,7 +73,44 @@ services:
     swagger: ./microservice/openapi.yaml
     host: "http://microservice:8080"
     prefix: "/custom_prefix"
+    # Public services can opt out of global auth/validator injection.
+    auth: false
 ```
+
+`auth` staat standaard op `true`. Stel `auth: false` in voor handmatig
+geschreven publieke doorgangen zoals health-probes en documentatie-endpoints.
+Padparameters worden positioneel genormaliseerd (`{p1}`, `{p2}`, ...) om
+conflicten in de KrakenD-router te voorkomen wanneer routes op dezelfde
+segmentpositie verschillende parameternamen gebruiken.
+
+De generator biedt achterwaarts compatibele fallbackwaarden voor time-out,
+doorgestuurde headers, logging, foutafhandeling en CORS. Gebruik
+`global.timeout` en `global.input_headers` om de time-out en de request-headers
+te overschrijven. Gebruik het globale extra-config-bestand om CORS-instellingen
+te overschrijven; globale instellingen die niet met authenticatie te maken
+hebben worden samengevoegd in de KrakenD-hoofdconfiguratie en lijstwaarden
+vervangen de fallbacklijsten.
+
+`global.stream_timeout` stelt een langere time-out per endpoint in, zodat
+langlopende streams (SSE) en grote exports niet worden afgebroken door de korte
+globale time-out. Deze wordt toegepast op basis van het *soort* endpoint —
+uploads (`multipart/form-data`) en bestandsdownloads — en nooit op basis van de
+codering, zodat het inschakelen van `passthrough` de streaming-time-out niet aan
+de rest van de API geeft. Standaard is deze niet ingesteld en behouden alle
+endpoints de globale time-out.
+
+`global.passthrough` (standaard `false`) geeft op elk endpoint de
+`no-op`-codering, waardoor de gateway een transparante reverse proxy wordt. Bij
+elke andere codering vervangt KrakenD een niet-2xx-backendantwoord door zijn
+eigen 500 zonder body en worden `201`/`202` teruggebracht tot `200`; `no-op`
+geeft de status, body en headers van de backend ongewijzigd terug, wat van
+belang is wanneer de backend al een gestructureerde foutenvelop gebruikt die de
+client moet kunnen lezen. Daar staat tegenover dat `no-op` de proxy-pipeline
+omzeilt: aggregatie, samenvoeging, responsmanipulatie, gelijktijdige backends en
+`extra_config` op backendniveau werken niet meer. Functies van de
+router-pipeline blijven onaangetast, dus `auth/validator` (en daarmee
+`auth: false`), `qos/ratelimit/router` en `security/cors` blijven precies werken
+zoals voorheen.
 
 ### Extra Config (auth.json-voorbeeld)
 

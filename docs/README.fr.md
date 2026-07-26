@@ -23,6 +23,8 @@ Convertissez des fichiers Swagger/OpenAPI YAML en configuration de passerelle d'
 - **Injection d'extra-config** : injectez des configurations de plugins supplémentaires, globales et par service (comme la limitation de débit ou la validation JWT).
 - **Substitution de variables d'environnement et locales** : injection puissante de variables de template Jinja2 `{{ VAR_NAME }}` depuis l'environnement ou des variables YAML locales.
 - **Détection des envois de fichiers** : traitement spécial pour les endpoints `multipart/form-data`.
+- **Mode proxy transparent** : encodage `no-op` optionnel sur chaque endpoint, transmettant tels quels les codes de statut, corps et en-têtes du backend.
+- **Délais d'attente pour le streaming** : délai d'attente plus long, optionnel, appliqué uniquement aux endpoints d'envoi et de téléchargement de fichiers.
 
 ## Utilisation
 
@@ -38,6 +40,13 @@ python3 app.py -c krakend-builder.yaml -o output/krakend.json
 global:
   # Global configurations applied to all endpoints (e.g. Auth validators)
   extra_config: ./config/auth.json
+  # Optional gateway settings applied to generated endpoint configs.
+  timeout: 30s
+  stream_timeout: 3600s   # only applied to upload / file-download endpoints
+  passthrough: true       # no-op encoding everywhere -> transparent reverse proxy
+  input_headers:
+    - Authorization
+    - Content-Type
   # Variables that will be substituted in the global extra_config
   variables:
     KEYCLOAK_URL: http://keycloak:8080/keycloak
@@ -64,7 +73,45 @@ services:
     swagger: ./microservice/openapi.yaml
     host: "http://microservice:8080"
     prefix: "/custom_prefix"
+    # Public services can opt out of global auth/validator injection.
+    auth: false
 ```
+
+`auth` vaut `true` par défaut. Définissez `auth: false` pour les passages
+publics écrits à la main, tels que les sondes de santé et les endpoints de
+documentation. Les paramètres de chemin sont normalisés de manière
+positionnelle (`{p1}`, `{p2}`, ...) afin d'éviter les conflits du routeur
+KrakenD lorsque des routes utilisent des noms de paramètres différents à la même
+position de segment.
+
+Le générateur fournit des valeurs de repli rétrocompatibles pour le délai
+d'attente, les en-têtes transmis, la journalisation, la gestion des erreurs et
+le CORS. Utilisez `global.timeout` et `global.input_headers` pour surcharger le
+délai d'attente et les en-têtes de requête. Utilisez le fichier extra-config
+global pour surcharger les paramètres CORS ; les paramètres globaux non liés à
+l'authentification sont fusionnés dans la configuration KrakenD racine et les
+valeurs de type liste remplacent les listes de repli.
+
+`global.stream_timeout` définit un délai d'attente par endpoint plus long afin
+que les flux de longue durée (SSE) et les exports volumineux ne soient pas
+interrompus par le délai d'attente global court. Il est appliqué selon le *type*
+d'endpoint — envois de fichiers (`multipart/form-data`) et téléchargements — et
+jamais selon l'encodage : activer `passthrough` ne transmet donc pas le délai de
+streaming au reste de l'API. Par défaut, il n'est pas défini et tous les
+endpoints conservent le délai d'attente global.
+
+`global.passthrough` (`false` par défaut) émet l'encodage `no-op` sur chaque
+endpoint, transformant la passerelle en proxy inverse transparent. Avec tout
+autre encodage, KrakenD remplace une réponse backend non 2xx par sa propre
+erreur 500 sans corps et convertit les `201`/`202` en `200` ; `no-op` renvoie
+tels quels le statut, le corps et les en-têtes du backend, ce qui est important
+lorsque le backend utilise déjà une enveloppe d'erreur structurée que le client
+doit lire. En contrepartie, `no-op` court-circuite le pipeline proxy :
+l'agrégation, la fusion, la manipulation des réponses, les backends concurrents
+et l'`extra_config` au niveau du backend ne s'appliquent plus. Les
+fonctionnalités du pipeline routeur ne sont pas affectées : `auth/validator` (et
+donc `auth: false`), `qos/ratelimit/router` et `security/cors` continuent de
+fonctionner exactement comme avant.
 
 ### Extra Config (exemple auth.json)
 

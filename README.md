@@ -23,6 +23,8 @@ Convert Swagger/OpenAPI YAML files to KrakenD API gateway configuration using a 
 - **Extra-config injection**: Inject global and per-service extra plugins configs (like rate-limiting or JWT validation).
 - **Environment & Local Variable Substitution**: Powerful Jinja2 template variable injection `{{ VAR_NAME }}` from the environment or localized YAML variables.
 - **File upload detection**: Special handling for `multipart/form-data` endpoints.
+- **Transparent proxy mode**: Optional `no-op` encoding on every endpoint, forwarding backend status codes, bodies and headers verbatim.
+- **Streaming timeouts**: Optional longer timeout applied only to upload and file-download endpoints.
 
 ## Usage
 
@@ -40,6 +42,8 @@ global:
   extra_config: ./config/auth.json
   # Optional gateway settings applied to generated endpoint configs.
   timeout: 30s
+  stream_timeout: 3600s   # only applied to upload / file-download endpoints
+  passthrough: true       # no-op encoding everywhere -> transparent reverse proxy
   input_headers:
     - Authorization
     - Content-Type
@@ -84,6 +88,24 @@ forwarded headers, logging, error handling, and CORS. Use `global.timeout` and
 global extra-config file to override CORS settings; non-auth global settings
 are merged into the root KrakenD configuration and list values replace the
 fallback lists.
+
+`global.stream_timeout` sets a longer per-endpoint timeout so that long-lived
+streams (SSE) and large exports are not cut off by the short global timeout. It
+is applied by the *kind* of endpoint — uploads (`multipart/form-data`) and file
+downloads — and never by the encoding, so enabling `passthrough` does not hand
+the streaming timeout to the rest of the API. It defaults to unset, leaving
+every endpoint on the global timeout.
+
+`global.passthrough` (default `false`) emits the `no-op` encoding on every
+endpoint, turning the gateway into a transparent reverse proxy. Under any other
+encoding KrakenD replaces a non-2xx backend response with its own bodyless 500
+and collapses `201`/`202` into `200`; `no-op` returns the backend's status, body
+and headers verbatim, which matters when the backend already speaks a structured
+error envelope the client needs to read. The trade-off is that `no-op` bypasses
+the proxy pipe: aggregation, merging, response manipulation, concurrent backends
+and backend-level `extra_config` no longer apply. Router-pipe features are
+unaffected, so `auth/validator` (and therefore `auth: false`),
+`qos/ratelimit/router` and `security/cors` keep working exactly as before.
 
 ### Extra Config (auth.json example)
 
