@@ -40,11 +40,23 @@ JSON_MEDIA_TYPES = {"application/json", "application/problem+json"}
 # global.input_headers. Note that headers injected by auth/validator's
 # propagate_claims are stripped unless declared here — the input_headers filter
 # applies to the final header set.
+#
+# The x-auth-* trio comes from propagate_claims too (auth_time, sid, acr): the
+# signature annexe checks that a sign call follows a recent interactive login
+# and records the session in its evidence. x-source-ip is set by nginx from the
+# client's address, User-Agent is the browser's; both go in the same evidence.
+# nginx blanks every x-auth-* and x-source-ip a client sends, so only the
+# gateway or nginx can set them.
 DEFAULT_INPUT_HEADERS = [
     "x-user-id",
     "x-community-id",
     "x-user-groups",
     "x-user-orgs",
+    "x-auth-time",
+    "x-auth-sid",
+    "x-auth-acr",
+    "x-source-ip",
+    "User-Agent",
     "Content-Length",
     "Content-Type",
     "Accept-Language",
