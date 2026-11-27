@@ -134,6 +134,22 @@ Vous pouvez référencer des fichiers de configuration JSON externes pour appliq
 }
 ```
 
+Par exemple, un builder peut remplacer la configuration CORS de repli sans modifier
+l'analyseur :
+
+```json
+{
+  "security/cors": {
+    "allow_origins": ["http://localhost:4200"],
+    "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    "allow_headers": ["Authorization", "Content-Type", "Accept-Language", "X-Request-ID"],
+    "expose_headers": ["Content-Disposition", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-Request-ID"],
+    "allow_credentials": true,
+    "max_age": "12h"
+  }
+}
+```
+
 ### Variables d'environnement
 
 | Variable | Valeur par défaut | Description |
