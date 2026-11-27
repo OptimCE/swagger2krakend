@@ -133,6 +133,22 @@ U kunt verwijzen naar externe JSON-configuratiebestanden om KrakenD-plugins toe 
 }
 ```
 
+Een builder kan bijvoorbeeld de CORS-fallbackconfiguratie overschrijven zonder de
+parser te wijzigen:
+
+```json
+{
+  "security/cors": {
+    "allow_origins": ["http://localhost:4200"],
+    "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    "allow_headers": ["Authorization", "Content-Type", "Accept-Language", "X-Request-ID"],
+    "expose_headers": ["Content-Disposition", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-Request-ID"],
+    "allow_credentials": true,
+    "max_age": "12h"
+  }
+}
+```
+
 ### Omgevingsvariabelen
 
 | Variabele | Standaard | Beschrijving |

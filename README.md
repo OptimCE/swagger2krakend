@@ -128,8 +128,8 @@ You can reference external JSON configuration files to apply KrakenD plugins. Ji
 }
 ```
 
-For example, a Med2Go builder can override the fallback CORS configuration
-without changing the parser:
+For example, a builder can override the fallback CORS configuration without
+changing the parser:
 
 ```json
 {
@@ -143,9 +143,6 @@ without changing the parser:
   }
 }
 ```
-
-The repository's Med2Go example is in `../krakend/global-extra.json` and is
-referenced by `../krakend/krakend-builder.yaml`.
 
 ### Environment Variables
 

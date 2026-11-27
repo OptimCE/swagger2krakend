@@ -133,6 +133,22 @@ Sie können externe JSON-Konfigurationsdateien referenzieren, um KrakenD-Plugins
 }
 ```
 
+Zum Beispiel kann ein Builder die Fallback-CORS-Konfiguration überschreiben, ohne
+den Parser zu ändern:
+
+```json
+{
+  "security/cors": {
+    "allow_origins": ["http://localhost:4200"],
+    "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    "allow_headers": ["Authorization", "Content-Type", "Accept-Language", "X-Request-ID"],
+    "expose_headers": ["Content-Disposition", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-Request-ID"],
+    "allow_credentials": true,
+    "max_age": "12h"
+  }
+}
+```
+
 ### Umgebungsvariablen
 
 | Variable | Standard | Beschreibung |
